@@ -296,13 +296,23 @@ def _strip_code_for_scan(text: str) -> str:
     return no_inline
 
 
+# CommonMark allows a backslash escape before any ASCII punctuation character.
+_MARKDOWN_ESCAPE_RE = re.compile(r"\\([!-/:-@\[-`{-~])")
+
+
 def _secret_scan(text: str) -> tuple[str, str] | None:
-    """Return (label, matched_snippet) on first hit, None if clean."""
+    """Return (label, matched_snippet) on first hit, None if clean.
+
+    Matches run against a view with markdown backslash escapes removed, because
+    trafilatura's markdown output can write ``_`` as ``\\_`` (2.3.1 does, 2.0.0 does
+    not), which hides every secret format containing an underscore. Code is
+    stripped first so a removed escape cannot turn into a code-span delimiter.
+    """
     from kb.capture import _CAPTURE_SECRET_PATTERNS
 
-    code_stripped = _strip_code_for_scan(text)
+    scan_view = _MARKDOWN_ESCAPE_RE.sub(r"\1", _strip_code_for_scan(text))
     for label, pattern in _CAPTURE_SECRET_PATTERNS:
-        m = pattern.search(code_stripped)
+        m = pattern.search(scan_view)
         if m:
             return label, m.group(0)[:80]
     return None
