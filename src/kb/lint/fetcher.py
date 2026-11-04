@@ -288,11 +288,13 @@ def _strip_code_for_scan(text: str) -> str:
     *view* used solely as input to regex sweeps. Documentation pages (e.g.,
     Wikipedia IAM articles) often contain example AKIA-prefix strings inside
     code fences - we don't want to reject the whole fetch over that.
+
+    Code is replaced with a space so the text around it cannot join into a match.
     """
     # Strip fenced code blocks (``` ... ```)
-    no_fenced = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
+    no_fenced = re.sub(r"```.*?```", " ", text, flags=re.DOTALL)
     # Strip inline code spans (`...`)
-    no_inline = re.sub(r"`[^`\n]+`", "", no_fenced)
+    no_inline = re.sub(r"`[^`\n]+`", " ", no_fenced)
     return no_inline
 
 
@@ -303,14 +305,14 @@ _MARKDOWN_ESCAPE_RE = re.compile(r"\\([!-/:-@\[-`{-~])")
 def _secret_scan(text: str) -> tuple[str, str] | None:
     """Return (label, matched_snippet) on first hit, None if clean.
 
-    Matches run against a view with markdown backslash escapes removed, because
-    trafilatura's markdown output can write ``_`` as ``\\_`` (2.3.1 does, 2.0.0 does
-    not), which hides every secret format containing an underscore. Code is
-    stripped first so a removed escape cannot turn into a code-span delimiter.
+    Markdown backslash escapes are removed before anything else, because
+    trafilatura's markdown output can write ``_`` as ``\\_`` and escape literal
+    backticks the same way (2.3.1 does, 2.0.0 does not). Left in place, they hide
+    every secret format containing an underscore and change what counts as code.
     """
     from kb.capture import _CAPTURE_SECRET_PATTERNS
 
-    scan_view = _MARKDOWN_ESCAPE_RE.sub(r"\1", _strip_code_for_scan(text))
+    scan_view = _strip_code_for_scan(_MARKDOWN_ESCAPE_RE.sub(r"\1", text))
     for label, pattern in _CAPTURE_SECRET_PATTERNS:
         m = pattern.search(scan_view)
         if m:

@@ -534,6 +534,25 @@ def test_secret_scan_keeps_skipping_escaped_examples_in_code_spans():
     assert _secret_scan(f"Put `{example}` in your .npmrc file.") is None
 
 
+def test_secret_scan_keeps_skipping_literal_fences_escaped_by_trafilatura():
+    """trafilatura 2.3.1 writes a literal fence as \\`\\`\\`; it must still count as code.
+
+    The multi-line form fails if code stripping runs before escapes are removed.
+    """
+    from kb.lint.fetcher import _secret_scan
+
+    fence = "\\`\\`\\`"
+    key = "AKIA" + "EXAMPLEEXAMPLEXX"
+    assert _secret_scan(f"Example:\n\n{fence}\nkey = '{key}'\n{fence}\n") is None
+
+
+def test_secret_scan_does_not_join_text_across_a_removed_code_span():
+    """Removing a code span must not build a secret from the text on either side."""
+    from kb.lint.fetcher import _secret_scan
+
+    assert _secret_scan("Docs: ghp`example`\\_" + "a1B2c3D4e5" * 4) is None
+
+
 @pytest.mark.skip_default_robots
 def test_robots_allow_proceeds(httpx_mock):
     httpx_mock.add_response(
