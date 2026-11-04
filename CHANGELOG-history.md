@@ -17,6 +17,21 @@ Purpose: Full per-cycle bullet-level detail archive. CHANGELOG.md is the compact
 
 > Detailed per-cycle entries live here. High-level summaries remain in [CHANGELOG.md](CHANGELOG.md); full bullet-level detail belongs here.
 
+### 2026-11-05 — dependency-security sweep (Dependabot #96–#237)
+
+**Theme:** close all 141 open Dependabot alerts (12 critical, 58 high, 65 medium, 6 low) across 28 packages, all reported against `requirements.txt`.
+
+- **Target rule.** Each package moved to its highest first-patched version, not its latest release. Several latest releases were under 48 hours old on the day of this sweep, and the smallest patching version keeps the diff reviewable. A package went further only when the resolver required it.
+- **Two advisories' fixed versions could not be used as stated.** `transformers` 5.10.0 is yanked on PyPI, so the pin is 5.10.4. `docling` 2.132.0 still declares `pillow<13`, and 41 Pillow alerts need 13.0.0; 2.142.0 is the first release allowing it, so the pin is 2.142.1.
+- **Three alerts have no `first_patched_version`.** `PyJWT` #138, `transformers` #137, and `accelerate` #115 only publish a vulnerable range. All three pins now sit outside it. Every alert was checked this way with `packaging.specifiers`: each old pin was inside its vulnerable range and no new pin is.
+- **Resolver co-bumps.** `arxiv` 4.0.0 → 4.0.2, `docling-core` 2.74.1 → 2.106.0, `docling-ibm-models` 3.13.0 → 4.0.4, `docling-parse` 5.7.0 → 7.24.2, `requests` 2.33.0 → 2.34.2, `yarl` 1.23.0 → 1.25.1. None has an advisory of its own.
+- **`GitPython` range, from `pip-audit` rather than Dependabot.** Dependabot filed no alert for these, but the resolved 3.1.62 carried 6 advisories fixed only in 3.2.0 / 3.2.1 (CVE-2026-114145, CVE-2026-110855 through CVE-2026-110859). Nothing in `src/`, `tests/`, or `scripts/` imports it and no installed package requires it, so the range moved to `>=3.2.1,<3.3`. `tests/test_cycle65_dep_pinning.py` moved with it, keeping the cycle-65 AC11 floor-plus-next-minor shape.
+- **Secret-scan regression, found by reproducing the CI install.** CI installs from `pyproject.toml`, not `requirements.txt`, so a fresh resolve now gets `trafilatura` 2.3.1 while the pin stays 2.0.0. That release writes `_` as `\_` in markdown output, and `_secret_scan` runs on that output, so `_authToken=`, `ghp_`, `sk_live_`, and `npm_` secrets all reached `status="ok"`. `_secret_scan` now removes CommonMark backslash escapes before stripping code, so the scan sees the same text on either version; the output text is unchanged. New tests patch `trafilatura.extract`, so they fail on any installed version without the fix.
+- **Independent review (Codex), two findings.** A new false positive: code stripping deleted a span with nothing in its place, so `ghp<code>x</code>_<36 chars>` joined into a token match. Code is now replaced with a space. A residual left open: a secret wrapped in literal backticks in page text counts as code and is skipped. The first attempt at closing this made escaped backticks non-code, which broke `test_secret_scan_allows_aws_key_in_code_fence`, the test pinning the documented-example exemption, so it was reverted. Behaviour matches `trafilatura` 2.0.0, and a page can get the same skip with a real `<code>` element on either version, so closing it is a decision about the exemption itself.
+- **`.venv` not updated.** `pip install` hit `WinError 5` on `_brotli.cp313-win_amd64.pyd` because `arxiv_mcp_server` runs from `.venv`; pip rolled back and `pip freeze` was unchanged. Verification used two throwaway environments instead: a clean `requirements.txt` install on Python 3.13, and a CI-matching resolve on Python 3.12.
+- **Verification.** Both environments: `pip check` clean, `pip-audit` zero findings, 3739 passed, 29 skipped, 17 xfailed, 0 failed. `ruff check` clean on the CI-resolved ruff 0.17.3. The CI-matching environment runs `fastmcp` 4.1.6, `mcp` 2.3.0, and `anthropic` 2.5.0.
+- **Tests:** 3779 → 3785 (+6, all in `tests/test_v5_lint_augment_fetcher.py`).
+
 ### 2026-07-31 — cycle 97 (bounded page read)
 
 **Theme:** close the cycle-96 R1 F1 residual — the SOURCE half of the paired-context read was bounded in cycle 96; the wiki page BODY was not.

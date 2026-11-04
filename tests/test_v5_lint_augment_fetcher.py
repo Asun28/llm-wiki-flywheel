@@ -500,6 +500,59 @@ def test_secret_scan_rejects_npm_authtoken(httpx_mock):
     assert r.status == "blocked"
 
 
+@pytest.mark.parametrize(
+    "escaped_secret",
+    [
+        "//registry.npmjs.org/:\\_authToken=" + "abcdefghij" + "0123456789ABCDEFG\\_-",
+        "ghp\\_" + "a1B2c3D4e5" * 4,
+        "sk\\_live\\_" + "a1B2c3D4e5" * 3,
+    ],
+    ids=["npm-authtoken", "github-pat", "stripe-live-key"],
+)
+def test_secret_scan_sees_through_markdown_escapes(httpx_mock, escaped_secret):
+    """trafilatura 2.3.1 writes `_` as `\\_` in markdown output, which hid these secrets.
+
+    `extract` is patched so this holds whichever trafilatura version is installed:
+    requirements.txt pins 2.0.0 (no escaping) while CI resolves the latest release.
+    """
+    httpx_mock.add_response(
+        url="https://example.com/escaped",
+        headers={"content-type": "text/html"},
+        content=b"<html><body><article>placeholder</article></body></html>",
+    )
+    f = _build_fetcher()
+    with patch("kb.lint.fetcher.trafilatura.extract", return_value=f"Docs: {escaped_secret}"):
+        r = f.fetch("https://example.com/escaped")
+    assert r.status == "blocked"
+
+
+def test_secret_scan_keeps_skipping_escaped_examples_in_code_spans():
+    """Removing escapes must not start flagging documented examples inside code."""
+    from kb.lint.fetcher import _secret_scan
+
+    example = "//registry.npmjs.org/:\\_authToken=" + "abcdefghij0123456789ABCDEFG"
+    assert _secret_scan(f"Put `{example}` in your .npmrc file.") is None
+
+
+def test_secret_scan_keeps_skipping_literal_fences_escaped_by_trafilatura():
+    """trafilatura 2.3.1 writes a literal fence as \\`\\`\\`; it must still count as code.
+
+    The multi-line form fails if code stripping runs before escapes are removed.
+    """
+    from kb.lint.fetcher import _secret_scan
+
+    fence = "\\`\\`\\`"
+    key = "AKIA" + "EXAMPLEEXAMPLEXX"
+    assert _secret_scan(f"Example:\n\n{fence}\nkey = '{key}'\n{fence}\n") is None
+
+
+def test_secret_scan_does_not_join_text_across_a_removed_code_span():
+    """Removing a code span must not build a secret from the text on either side."""
+    from kb.lint.fetcher import _secret_scan
+
+    assert _secret_scan("Docs: ghp`example`\\_" + "a1B2c3D4e5" * 4) is None
+
+
 @pytest.mark.skip_default_robots
 def test_robots_allow_proceeds(httpx_mock):
     httpx_mock.add_response(
