@@ -59,13 +59,19 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 
 def find_probes(probes_dir: Path, wanted: list[str]) -> list[Path]:
-    """Return the probe files to run, in file-name order; raise ValueError on an unknown name."""
-    found = {p.stem: p for p in probes_dir.glob("*.py") if not p.name.startswith("_")}
+    """Return the probe files to run, in file-name order; raise ValueError on an unknown name.
+
+    A probe is a regular file (or a link to one) named `*.py` not starting with `_`;
+    a directory named `*.py` is not a probe.
+    """
+    found = {
+        p.stem: p for p in probes_dir.glob("*.py") if p.is_file() and not p.name.startswith("_")
+    }
     unknown = sorted(set(wanted) - set(found))
     if unknown:
         raise ValueError(f"--probe names no file in {probes_dir}: {', '.join(unknown)}")
-    names = sorted(set(wanted) if wanted else found)
-    return [found[name] for name in names]
+    selected = [found[name] for name in set(wanted)] if wanted else list(found.values())
+    return sorted(selected, key=lambda p: p.name)
 
 
 def git_state() -> tuple[str, bool]:
@@ -81,17 +87,38 @@ def git_state() -> tuple[str, bool]:
 
 
 def listing(directories: list[Path]) -> dict[str, tuple[int, int]]:
-    """Map each file path under the directories to (size, mtime in ns); symlinks not followed."""
-    files: dict[str, tuple[int, int]] = {}
+    """Map each entry path under the directories to (size, mtime in ns).
+
+    Real directories are descended into. Every other entry, including a symbolic
+    link to a directory and a Windows junction, is listed by its own lstat and not
+    followed. A missing directory lists as empty; any OSError while scanning an
+    existing one propagates so the caller can fail the run.
+    """
+    entries: dict[str, tuple[int, int]] = {}
+
+    def scan(directory: str) -> None:
+        with os.scandir(directory) as found:
+            for entry in found:
+                if entry.is_dir(follow_symlinks=False) and not entry.is_junction():
+                    scan(entry.path)
+                else:
+                    stat = entry.stat(follow_symlinks=False)
+                    entries[entry.path] = (stat.st_size, stat.st_mtime_ns)
+
     for directory in directories:
-        if not directory.is_dir():
-            continue
-        for parent, _dirs, names in os.walk(directory):
-            for name in names:
-                path = Path(parent) / name
-                stat = path.lstat()
-                files[str(path)] = (stat.st_size, stat.st_mtime_ns)
-    return files
+        if directory.is_dir():
+            scan(str(directory))
+    return entries
+
+
+def guarded_listing(directories: list[Path]) -> dict[str, tuple[int, int]] | None:
+    """Return the listing, or print which guarded path could not be listed and return None."""
+    try:
+        return listing(directories)
+    except OSError as exc:
+        where = exc.filename or ", ".join(str(d) for d in directories)
+        say(f"cannot list guarded directory: {where}: {exc.strerror or exc}", sys.stderr)
+        return None
 
 
 def check_number(value: object, where: str) -> None:
@@ -210,14 +237,16 @@ def main(argv: list[str] | None = None) -> int:
         if (CHECKOUT / "templates").is_dir():
             shutil.copytree(CHECKOUT / "templates", root / "templates")
         os.environ["KB_PROJECT_ROOT"] = str(root)
-        before = listing(guarded)
+        before = guarded_listing(guarded)
+        if before is None:
+            return 1
         for path in probes:
             probe = path.stem
             tmp = Path(tempfile.mkdtemp(prefix=f"kbeval-{probe}-"))
             ctx = Context(tmp=tmp, data=BENCH / "data" / probe, wiki=wiki, raw=raw, out=out)
             try:
                 invariants, arms = run_probe(path, ctx)
-            except Exception as exc:  # any probe failure is reported, not raised
+            except (Exception, SystemExit) as exc:  # a probe failure, sys.exit included
                 cause = "".join(traceback.format_exception_only(exc)).strip()
                 say(f"{probe} failed: {cause}", sys.stderr)
                 exit_code = 1
@@ -234,7 +263,7 @@ def main(argv: list[str] | None = None) -> int:
             write_record(out, record)
             for line in summary_lines(probe, arms):
                 say(line, sys.stdout)
-        after = listing(guarded)
+        after = guarded_listing(guarded)
     finally:
         if previous_root is None:
             os.environ.pop("KB_PROJECT_ROOT", None)
@@ -242,6 +271,8 @@ def main(argv: list[str] | None = None) -> int:
             os.environ["KB_PROJECT_ROOT"] = previous_root
         shutil.rmtree(root, ignore_errors=True)
 
+    if after is None:
+        return 1
     for path in sorted(set(before) | set(after)):
         if before.get(path) != after.get(path):
             say(f"guarded directory changed: {path}", sys.stderr)

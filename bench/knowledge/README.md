@@ -12,14 +12,14 @@
 | `--wiki DIR` | `demo/wiki` | Wiki directory given to probes as `ctx.wiki`. |
 | `--raw DIR` | `demo/raw` | Raw-source directory given to probes as `ctx.raw`. |
 
-Default paths are relative to the checkout root. Probes run one at a time, in file-name order.
+Default paths are relative to the checkout root. A probe is a regular file (or a link to one) named `<name>.py` whose name does not start with `_`; a directory named `*.py` is not a probe. Probes run one at a time, in full file-name order (`a.b.py` before `a.py`), with or without `--probe`.
 
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
 | 0 | Every probe returned a valid result and no guarded directory changed. |
-| 1 | A probe failed (no `run`, `run` raised, or an invalid return value) or a guarded directory changed. The other probes still run and write their records; the failed probe writes none. |
+| 1 | A probe failed (no `run`, `run` raised, `run` called `sys.exit` with any code, or an invalid return value), a guarded directory changed, or a guarded directory could not be listed. After a probe failure the other probes still run, write their records and the guard still runs; the failed probe writes none. `KeyboardInterrupt` stops the run. |
 | 2 | Usage error: `--probe` names no file in the probes directory, or `--wiki`, `--raw` or `--probes-dir` is not a directory. No probe runs. |
 
 ## Record
@@ -52,7 +52,11 @@ One file per probe, `<out>/<probe>.json`, UTF-8, sorted keys, two-space indent, 
 
 ## Guard
 
-Before the first probe and after the last, the runner lists every file (relative path, size, modification time in nanoseconds) under the checkout's `wiki/`, `raw/` and `.data/` and under the `--wiki` and `--raw` directories. A missing directory lists as empty; symbolic links are listed, not followed. For each file that differs it prints `guarded directory changed: <path>` and exits 1.
+Before the first probe and after the last, the runner lists every file (relative path, size, modification time in nanoseconds) under the checkout's `wiki/`, `raw/` and `.data/` and under the `--wiki` and `--raw` directories. For each entry that differs it prints `guarded directory changed: <path>` and exits 1.
+
+- Real directories are descended into. Every other entry is listed by its own size and time and not followed: regular files, symbolic links to files or to directories, and Windows junctions. A junction is treated as a link, not a directory, so adding or removing one is a change and its target's contents are not listed.
+- A missing guarded directory lists as empty.
+- A guarded directory that exists but cannot be listed (for example, permission denied on a subdirectory) is not read as empty: the runner prints `cannot list guarded directory: <path>: <cause>` and exits 1. If this happens before the first probe, no probe runs.
 
 While probes run, `KB_PROJECT_ROOT` points at a temporary directory that holds a copy of the checkout's `templates/`, so `kb.config` resolves its default `wiki/`, `raw/` and `.data/` paths there instead of in the checkout. The directory is removed when the run ends.
 
