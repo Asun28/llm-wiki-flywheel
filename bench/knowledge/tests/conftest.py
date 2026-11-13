@@ -76,3 +76,19 @@ def bench(tmp_path: Path) -> Bench:
     for path in dirs.values():
         path.mkdir()
     return Bench(root=tmp_path, out=tmp_path / "out", **dirs)
+
+
+@pytest.fixture
+def runner():
+    """The runner module loaded in-process, for tests that inject a filesystem error."""
+    import importlib.util
+
+    name = "kbeval_run_under_test"
+    spec = importlib.util.spec_from_file_location(name, RUNNER)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module  # dataclasses look the module up while the class is built
+    try:
+        spec.loader.exec_module(module)
+        yield module
+    finally:
+        sys.modules.pop(name, None)

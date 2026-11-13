@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -314,3 +316,161 @@ def test_invariants_json_lists_i1_to_i11_with_their_probes():
     by_id = {entry["id"]: entry["probes"] for entry in entries}
     assert by_id["I5"] == [] and by_id["I7"] == []
     assert all(by_id[i] for i in by_id if i not in {"I5", "I7"})
+
+
+# -- attempt 2 regressions (R3 review findings F1-F5) ----------------------------
+
+
+def test_probes_run_in_file_name_order_not_stem_order(bench):
+    """F1: "a.b.py" sorts before "a.py" by file name, after it by stem."""
+    log = bench.root / "order.txt"
+    for name in ("a", "a.b"):
+        bench.probe(
+            name,
+            f"def run(ctx):\n"
+            f"    with open({str(log)!r}, 'a', encoding='utf-8') as fh:\n"
+            f"        fh.write({name!r} + '\\n')\n"
+            f"    return {{'invariants': [], 'arms': {{}}}}\n",
+        )
+
+    assert bench.run().returncode == 0
+    assert log.read_text(encoding="utf-8").splitlines() == ["a.b", "a"]
+    log.unlink()
+    assert bench.run("--probe", "a", "--probe", "a.b").returncode == 0
+    assert log.read_text(encoding="utf-8").splitlines() == ["a.b", "a"]
+
+
+def test_directory_named_like_a_probe_is_not_a_probe(bench):
+    """F2: a probes dir holding only a `helper.py/` directory has no probe file."""
+    (bench.probes / "helper.py").mkdir()
+
+    proc = bench.run()
+
+    assert proc.returncode == 0, proc.output
+    assert proc.output == ""
+    assert bench.records() == []
+
+
+def test_directory_named_like_a_probe_is_unknown_to_probe_option(bench):
+    (bench.probes / "helper.py").mkdir()
+
+    proc = bench.run("--probe", "helper")
+
+    assert proc.returncode == 2, proc.output
+    assert "helper" in proc.output
+
+
+def make_link(kind, target, link):
+    import os
+
+    if kind == "junction":
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+    else:
+        os.symlink(target, link, target_is_directory=kind == "dir_symlink")
+
+
+def remove_link(kind, link):
+    import os
+
+    if kind != "file_symlink" and os.name == "nt":
+        os.rmdir(link)
+    else:
+        os.unlink(link)
+
+
+LINK_KINDS = ["file_symlink", "dir_symlink", "junction"]
+
+
+def link_target(bench, kind: str) -> Path:
+    if kind == "file_symlink":
+        target = bench.root / "target.txt"
+        target.write_text("target", encoding="utf-8")
+    else:
+        target = bench.root / "target_dir"
+        target.mkdir(exist_ok=True)
+    return target
+
+
+def require_link_kind(bench, kind: str) -> None:
+    """Skip when this platform cannot create the link kind (junctions: Windows only;
+    symlinks on Windows without the privilege raise WinError 1314)."""
+    if kind == "junction" and sys.platform != "win32":
+        pytest.skip("junctions exist on Windows only")
+    probe_link = bench.root / f"can_link_{kind}"
+    try:
+        make_link(kind, link_target(bench, kind), probe_link)
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 1314:
+            pytest.skip("symlink creation needs a privilege this Windows account lacks")
+        raise
+    remove_link(kind, probe_link)
+
+
+@pytest.mark.parametrize("op", ["create", "remove"])
+@pytest.mark.parametrize("kind", LINK_KINDS)
+def test_adding_or_removing_a_link_under_wiki_fails_the_run(bench, kind, op):
+    """F3: links, including links to directories and junctions, are guarded entries."""
+    require_link_kind(bench, kind)
+    target = link_target(bench, kind)
+    link = bench.wiki / "link"
+    if op == "create":
+        call = f"make_link({kind!r}, {str(target)!r}, ctx.wiki / 'link')"
+    else:
+        make_link(kind, target, link)
+        call = f"remove_link({kind!r}, ctx.wiki / 'link')"
+    helpers = inspect.getsource(make_link) + "\n" + inspect.getsource(remove_link)
+    bench.probe(
+        "linker_probe",
+        f"{helpers}\n\ndef run(ctx):\n    {call}\n    return {{'invariants': [], 'arms': {{}}}}\n",
+    )
+
+    proc = bench.run()
+
+    assert proc.returncode == 1, proc.output
+    guard_lines = [line for line in proc.output.splitlines() if GUARD in line]
+    assert any(str(link) in line for line in guard_lines), proc.output
+
+
+@pytest.mark.parametrize("code", [0, 3])
+def test_probe_calling_sys_exit_fails_only_that_probe(bench, code):
+    """F4: SystemExit from a probe is a probe failure; later probes and the guard still run."""
+    write = "(ctx.wiki / 'leak.md').write_text('x', encoding='utf-8')\n    " if code == 0 else ""
+    bench.probe("a_exiting", f"import sys\n\ndef run(ctx):\n    {write}sys.exit({code})\n")
+    bench.probe("b_good", VALID)
+
+    proc = bench.run()
+
+    assert proc.returncode == 1, proc.output
+    assert "a_exiting" in proc.output
+    assert bench.records() == ["b_good.json"]
+    if code == 0:
+        assert any(GUARD in line and "leak.md" in line for line in proc.output.splitlines())
+
+
+def test_unlistable_guarded_directory_fails_the_run(bench, runner, monkeypatch, capsys):
+    """F5: a scan error under a guarded directory is reported, not read as an empty listing."""
+    import os
+
+    locked = bench.wiki / "locked"
+    locked.mkdir()
+    (locked / "page.md").write_text("body", encoding="utf-8")
+    real_scandir = os.scandir
+
+    def scandir(path="."):
+        if os.path.normcase(os.fspath(path)) == os.path.normcase(str(locked)):
+            raise PermissionError(13, "Permission denied", os.fspath(path))
+        return real_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", scandir)
+    code = runner.main(
+        [
+            *("--probes-dir", str(bench.probes), "--wiki", str(bench.wiki)),
+            *("--raw", str(bench.raw), "--out", str(bench.out)),
+        ]
+    )
+    output = capsys.readouterr()
+
+    assert code == 1, output
+    assert str(locked) in output.out + output.err
