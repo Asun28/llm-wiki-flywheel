@@ -61,3 +61,21 @@ ruff check bench/knowledge && python -m pytest bench/knowledge/tests/test_runner
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+Attempt 1. RED: `a85f23ac31e47f1c50b9b781cd0dbf625ef9fe31:bench/knowledge/tests/test_runner.py` (24 failed, 0 passed; `run.py` and `invariants.json` absent). Tests below are in `bench/knowledge/tests/test_runner.py`.
+
+| Item | Proof | Result |
+|---|---|---|
+| 1 | `test_each_probe_gets_one_record_with_the_five_keys`, `test_record_is_sorted_two_space_json_with_lf_line_ends`, `test_two_runs_write_byte_equal_records` | pass |
+| 2 | `test_ctx_gives_tmp_data_wiki_raw_out_and_unmeasured` | pass |
+| 3 | `test_stdout_has_one_line_per_arm_with_metrics_in_name_order` | pass |
+| 4 | `test_probe_option_runs_only_the_named_probe`, `test_probe_option_given_twice_runs_both` | pass |
+| 5 | `test_invalid_probe_fails_the_run_but_others_still_write[no_run, run_raises, not_a_mapping, bad_status, cases_not_int, metric_is_string, metric_is_nan]` | pass |
+| 6 | `test_unknown_probe_name_exits_2`, `test_file_given_as_directory_option_exits_2[--wiki, --raw, --probes-dir]` | pass |
+| 7 | `test_probe_that_changes_wiki_fails_the_run[writes, deletes, rewrites]`, `test_unchanged_directories_give_no_guard_line` | pass |
+| 8 | `test_kb_config_sees_a_temporary_root_with_templates` (every test runs the runner in a subprocess) | pass |
+| 9 | `test_invariants_json_lists_i1_to_i11_with_their_probes` | pass |
+| 10 | Reviewer: `git diff main -- .github/workflows/ci.yml` has two hunks, `@@ -97,7` (`ruff check src/ tests/ bench/`) and `@@ -125,6` (step "Knowledge bench runner tests" after the full suite). README sections: "Record" (shape), "Options", "Exit codes", "Guard", "Add a probe". | reviewer-verified |
+
+Note: `bench/knowledge/probes/` does not exist until the first probe card adds a file (git does not keep an empty directory and no placeholder is in `allow_paths`), so a bare `python bench/knowledge/run.py` exits 2 per R7 until then.
