@@ -72,3 +72,7 @@ tmp/
 
 # claude-mem local placeholder stub (auto-generated per session)
 .github/copilot-instructions.md
+# aidlc runtime state (never committed)
+.aidlc/
+_local/
+.review/

@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 1,
+  "cardsDir": "specs/tasks",
+  "archiveDir": "specs/archive/tasks",
+  "intentDir": "intent",
+  "specsDir": "specs",
+  "plansDir": "plans",
+  "worktreeRoot": "D:\\wt\\llm-wiki-flywheel",
+  "base": "main",
+  "mode": "remote",
+  "shipPath": "github",
+  "reviewPool": "default",
+  "reviewPolicyVersion": "REVIEW.md@6",
+  "reviewer": "reviewer",
+  "maxWorkers": 2,
+  "family": "claude",
+  "provider": "mock",
+  "repository": "Asun28/llm-wiki-flywheel",
+  "github": {
+    "requiredChecks": [
+      "test"
+    ],
+    "requireVerdict": true
+  },
+  "ci": {
+    "transientSteps": [
+      "Set up job",
+      "Complete job"
+    ],
+    "scanSetupSteps": [
+      "Install gitleaks (pinned version, checksum verified)"
+    ]
+  },
+  "hooks": {
+    "frozenPaths": [],
+    "testPathPatterns": [
+      "(^|/)tests?/",
+      "\\.test\\.[cm]?[jt]sx?$",
+      "\\.spec\\.[cm]?[jt]sx?$",
+      "_test\\.(py|go|kt)$",
+      "(^|/)src/test/"
+    ],
+    "productionPatterns": [
+      "\\b(deploy|release|rollout|promote|apply)\\b[^\\n]*\\b(prod|production|live)\\b",
+      "\\b(prod|production)\\b[^\\n]*\\b(deploy|release|rollout|promote|apply)\\b"
+    ]
+  },
+  "tierPaths": {
+    "tierS": [],
+    "tier0": [],
+    "frozen": []
+  },
+  "preReview": {
+    "command": [],
+    "reviewer": "deepseek-v4-pro",
+    "coverage": "off",
+    "rounds": 2,
+    "timeoutMs": 600000,
+    "onExhausted": "stop",
+    "perspectives": [],
+    "answerMarker": ""
+  },
+  "formalReview": {
+    "secondPass": true,
+    "command": [
+      "codex",
+      "exec",
+      "-m",
+      "gpt-6-astra",
+      "-c",
+      "model_reasoning_effort={effort}",
+      "--sandbox",
+      "read-only",
+      "--output-schema",
+      "{schema}"
+    ],
+    "reviewer": "codex",
+    "timeoutMs": 1200000,
+    "maxDiffBytes": 800000,
+    "effort": {
+      "default": "medium"
+    },
+    "fallback": {
+      "command": [
+        "claude",
+        "-p",
+        "--model",
+        "claude-opus-5-5",
+        "--effort",
+        "{effort}",
+        "--tools",
+        "Read,Grep,Glob",
+        "--setting-sources=",
+        "--strict-mcp-config",
+        "--no-session-persistence"
+      ],
+      "reviewer": "claude-opus-5-5",
+      "timeoutMs": 1200000,
+      "maxDiffBytes": 800000,
+      "effort": {
+        "default": "medium",
+        "high": {
+          "minChangedLines": 500,
+          "paths": [
+            "src/kb/**"
+          ]
+        }
+      }
+    },
+    "baseSync": {
+      "command": [
+        "codex",
+        "exec",
+        "-m",
+        "gpt-6-astra",
+        "-c",
+        "model_reasoning_effort={effort}",
+        "--sandbox",
+        "read-only",
+        "--output-schema",
+        "{schema}"
+      ],
+      "reviewer": "codex-base-sync",
+      "timeoutMs": 1200000,
+      "maxDiffBytes": 800000,
+      "effort": {
+        "default": "medium"
+      }
+    }
+  }
+}

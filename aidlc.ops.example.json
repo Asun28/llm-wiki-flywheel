@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "environments": {
+    "staging": { "description": "Non-production environment for online testing", "database": "app-staging", "production": false },
+    "production": { "description": "Customer-facing environment", "database": "app-prod", "production": true }
+  },
+  "operations": [
+    {
+      "role": "build",
+      "command": ["npm", "run", "build"],
+      "targetSelection": "none",
+      "effects": ["local build output"],
+      "externallyVisible": false,
+      "timeoutMs": 900000,
+      "async": false,
+      "successPattern": "Build succeeded|built in",
+      "evidenceDir": ".aidlc-evidence/build"
+    },
+    {
+      "role": "package",
+      "command": ["npm", "pack", "--pack-destination", "dist"],
+      "targetSelection": "none",
+      "effects": ["tarball in dist/"],
+      "externallyVisible": false,
+      "timeoutMs": 600000,
+      "async": false,
+      "successPattern": "\\.tgz"
+    },
+    {
+      "role": "deploy",
+      "command": ["./scripts/deploy.sh"],
+      "targetSelection": "arg",
+      "targetArg": "--env",
+      "credentialScope": "DEPLOY_TOKEN scoped to the selected environment; no standing prod credentials",
+      "effects": ["replaces the running application version in the selected environment"],
+      "externallyVisible": true,
+      "timeoutMs": 1800000,
+      "async": true,
+      "operationIdPattern": "deployment[-_ ]id[:=]\\s*([A-Za-z0-9-]+)",
+      "idempotencyKeyArg": "--idempotency-key",
+      "statusLookup": ["./scripts/deploy-status.sh", "{id}"],
+      "successPattern": "status[:=]\\s*(succeeded|healthy)",
+      "failurePattern": "status[:=]\\s*(failed|rolled_back)",
+      "triggersPublication": false
+    },
+    {
+      "role": "status",
+      "command": ["./scripts/deploy-status.sh", "--latest"],
+      "targetSelection": "arg",
+      "targetArg": "--env",
+      "effects": [],
+      "externallyVisible": false,
+      "timeoutMs": 120000,
+      "async": false,
+      "successPattern": "status[:=]\\s*(succeeded|healthy)",
+      "failurePattern": "status[:=]\\s*(failed|rolled_back)"
+    },
+    {
+      "role": "environment",
+      "command": ["./scripts/env-identity.sh"],
+      "targetSelection": "arg",
+      "targetArg": "--env",
+      "effects": [],
+      "externallyVisible": false,
+      "timeoutMs": 60000,
+      "async": false,
+      "successPattern": "version[:=]"
+    },
+    {
+      "role": "health",
+      "command": ["./scripts/health.sh", "--json"],
+      "targetSelection": "arg",
+      "targetArg": "--env",
+      "effects": [],
+      "externallyVisible": false,
+      "timeoutMs": 120000,
+      "async": false
+    },
+    {
+      "role": "recover",
+      "command": ["./scripts/rollback.sh"],
+      "targetSelection": "arg",
+      "targetArg": "--env",
+      "credentialScope": "same as deploy; requires a recorded recovery authorization",
+      "effects": ["restores the previous healthy application release; database is NOT restored"],
+      "externallyVisible": true,
+      "timeoutMs": 1800000,
+      "async": true,
+      "operationIdPattern": "rollback[-_ ]id[:=]\\s*([A-Za-z0-9-]+)",
+      "statusLookup": ["./scripts/deploy-status.sh", "{id}"],
+      "successPattern": "status[:=]\\s*(succeeded|healthy)",
+      "failurePattern": "status[:=]\\s*failed"
+    }
+  ],
+  "health": [
+    { "name": "http_5xx_rate", "source": "prometheus:rate(http_requests_total{code=~\"5..\"}[5m])", "threshold": { "op": "<", "value": 0.01 }, "minSamples": 30, "maxStalenessMs": 120000, "windowMs": 600000, "maxWaitMs": 1800000, "owner": "service-owner" },
+    { "name": "p95_latency_ms", "source": "prometheus:histogram_quantile(0.95, ...)", "threshold": { "op": "<=", "value": 800 }, "minSamples": 30, "maxStalenessMs": 120000, "windowMs": 600000, "maxWaitMs": 1800000, "owner": "service-owner" }
+  ]
+}

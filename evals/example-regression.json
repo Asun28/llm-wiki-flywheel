@@ -1,0 +1,12 @@
+{
+  "id": "example-regression-tests-stay-green",
+  "dimension": "regression",
+  "prompt": "Run the project's test suite and report the result. Do not modify any file.",
+  "allowedTools": ["Read", "Bash(npm test)"],
+  "role": "investigator",
+  "effort": "low",
+  "checks": [
+    { "type": "command", "command": ["npm", "test"], "expectExit": 0 }
+  ],
+  "origin": "intent/example-incident.md"
+}
