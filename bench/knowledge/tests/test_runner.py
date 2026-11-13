@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -474,3 +475,68 @@ def test_unlistable_guarded_directory_fails_the_run(bench, runner, monkeypatch, 
 
     assert code == 1, output
     assert str(locked) in output.out + output.err
+
+
+# -- attempt 2 follow-up (coordinator items 1-3) ---------------------------------
+
+
+def test_probe_raising_a_custom_base_exception_fails_only_that_probe(bench):
+    """F4 class: any BaseException other than KeyboardInterrupt is a probe failure."""
+    bench.probe(
+        "a_stopping",
+        "class Stop(BaseException):\n    pass\n\n"
+        "def run(ctx):\n"
+        "    (ctx.wiki / 'leak.md').write_text('x', encoding='utf-8')\n"
+        "    raise Stop('halt')\n",
+    )
+    bench.probe("b_good", VALID)
+
+    proc = bench.run()
+
+    assert proc.returncode == 1, proc.output
+    assert "a_stopping" in proc.output
+    assert bench.records() == ["b_good.json"]
+    assert any(GUARD in line and "leak.md" in line for line in proc.output.splitlines())
+
+
+def test_failed_probe_leaves_no_record_from_an_earlier_run(bench):
+    """R6: a reused --out must not show a record this run did not produce."""
+    bench.out.mkdir()
+    (bench.out / "a.json").write_text('{"probe": "a"}\n', encoding="utf-8")
+    bench.probe("a", "def run(ctx):\n    raise RuntimeError('boom')\n")
+
+    proc = bench.run()
+
+    assert proc.returncode == 1, proc.output
+    assert not (bench.out / "a.json").exists()
+
+
+def test_underscore_file_is_not_a_probe(bench):
+    log = bench.root / "ran.txt"
+    bench.probe(
+        "_helper",
+        f"def run(ctx):\n    open({str(log)!r}, 'w').close()\n"
+        "    return {'invariants': [], 'arms': {}}\n",
+    )
+    bench.probe("a", VALID)
+
+    proc = bench.run()
+
+    assert proc.returncode == 0, proc.output
+    assert not log.exists()
+    assert bench.records() == ["a.json"]
+    assert bench.run("--probe", "_helper").returncode == 2
+
+
+def test_keyboard_interrupt_propagates_and_restores_kb_project_root(bench, runner, monkeypatch):
+    bench.probe("a", "def run(ctx):\n    raise KeyboardInterrupt\n")
+    monkeypatch.setenv("KB_PROJECT_ROOT", "previous-root")
+    argv = [
+        *("--probes-dir", str(bench.probes), "--wiki", str(bench.wiki)),
+        *("--raw", str(bench.raw), "--out", str(bench.out)),
+    ]
+
+    with pytest.raises(KeyboardInterrupt):
+        runner.main(argv)
+
+    assert os.environ["KB_PROJECT_ROOT"] == "previous-root"
