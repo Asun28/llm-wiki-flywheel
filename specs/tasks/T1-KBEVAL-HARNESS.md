@@ -66,7 +66,7 @@ ruff check bench/knowledge && python -m pytest bench/knowledge/tests/test_runner
 Tests are in `bench/knowledge/tests/test_runner.py`; `T::` below abbreviates that file.
 
 - Attempt 1 RED: `a85f23ac31e47f1c50b9b781cd0dbf625ef9fe31:bench/knowledge/tests/test_runner.py` (24 failed, 0 passed; `run.py` and `invariants.json` absent). Candidate ad57c53, blocked by R3 review (findings F1-F5).
-- Attempt 2 RED: `4ff5e341d7e8c4f70188251ff920845e93df6f1c:bench/knowledge/tests/test_runner.py` (8 failed, 24 passed, 4 skipped against ad57c53's runner; each failure on its assertion). The 4 skips are the symlink cases on a Windows account without the symlink privilege (WinError 1314); they run on ubuntu CI.
+- Attempt 2 RED: `4ff5e341d7e8c4f70188251ff920845e93df6f1c:bench/knowledge/tests/test_runner.py` (8 failed, 24 passed, 4 skipped against ad57c53's runner; each failure on its assertion). Follow-up RED `73583bf88e388f762d2e8154221ac7c0ec2e266e:bench/knowledge/tests/test_runner.py` against 3e2ef50: 2 failed (custom BaseException, stale record), 34 passed (the `_`-prefixed file and KeyboardInterrupt tests already passed), 4 skipped. The 4 skips are the symlink cases on a Windows account without the symlink privilege (WinError 1314); they run on ubuntu CI.
 
 | Item | Proof | Result |
 |---|---|---|
@@ -74,7 +74,7 @@ Tests are in `bench/knowledge/tests/test_runner.py`; `T::` below abbreviates tha
 | 2 | `test_ctx_gives_tmp_data_wiki_raw_out_and_unmeasured` | pass |
 | 3 | `test_stdout_has_one_line_per_arm_with_metrics_in_name_order` | pass |
 | 4 | `test_probe_option_runs_only_the_named_probe`, `test_probe_option_given_twice_runs_both` | pass |
-| 5 | `test_invalid_probe_fails_the_run_but_others_still_write[no_run, run_raises, not_a_mapping, bad_status, cases_not_int, metric_is_string, metric_is_nan]`, `test_probe_calling_sys_exit_fails_only_that_probe[0, 3]` (F4) | pass |
+| 5 | `test_invalid_probe_fails_the_run_but_others_still_write[no_run, run_raises, not_a_mapping, bad_status, cases_not_int, metric_is_string, metric_is_nan]`, `test_probe_calling_sys_exit_fails_only_that_probe[0, 3]` (F4), `test_probe_raising_a_custom_base_exception_fails_only_that_probe`, `test_failed_probe_leaves_no_record_from_an_earlier_run` | pass |
 | 6 | `test_unknown_probe_name_exits_2`, `test_file_given_as_directory_option_exits_2[--wiki, --raw, --probes-dir]`, `test_directory_named_like_a_probe_is_unknown_to_probe_option` (F2) | pass |
 | 7 | `test_probe_that_changes_wiki_fails_the_run[writes, deletes, rewrites]`, `test_unchanged_directories_give_no_guard_line`, `test_adding_or_removing_a_link_under_wiki_fails_the_run[*]` (F3), `test_unlistable_guarded_directory_fails_the_run` (F5) | pass (symlink cases skip on Windows without privilege) |
 | 8 | `test_kb_config_sees_a_temporary_root_with_templates` (every subprocess test runs the runner in a fresh interpreter) | pass |
@@ -87,7 +87,7 @@ Input forms and failure paths handled by the attempt-2 repair hunks:
 |---|---|---|
 | regular `*.py` file in probes dir | a probe, run in full file-name order | `T::test_probes_run_in_file_name_order_not_stem_order` |
 | `a.py` and `a.b.py`, with and without `--probe` | `a.b.py` runs first in both | `T::test_probes_run_in_file_name_order_not_stem_order` |
-| `_`-prefixed file | not a probe (unchanged from attempt 1) | not covered by a dedicated test |
+| `_`-prefixed file | not a probe; `--probe _helper` exits 2 | `T::test_underscore_file_is_not_a_probe` |
 | directory named `helper.py` | not a probe: empty run exits 0, prints nothing | `T::test_directory_named_like_a_probe_is_not_a_probe` |
 | `--probe helper` when only `helper.py/` exists | unknown probe, exit 2 | `T::test_directory_named_like_a_probe_is_unknown_to_probe_option` |
 | file link under `--wiki`, created or removed | listed by lstat, change reported | `T::test_adding_or_removing_a_link_under_wiki_fails_the_run[file_symlink-*]` (ubuntu CI; skips here) |
@@ -97,6 +97,8 @@ Input forms and failure paths handled by the attempt-2 repair hunks:
 | guarded subtree that cannot be listed | `cannot list guarded directory: <path>: <cause>`, exit 1 | `T::test_unlistable_guarded_directory_fails_the_run` (in-process, `os.scandir` raises PermissionError) |
 | probe calls `sys.exit(0)` after writing under `--wiki` | probe failure, next probe's record written, guard line printed, exit 1 | `T::test_probe_calling_sys_exit_fails_only_that_probe[0]` |
 | probe calls `sys.exit(3)` | probe failure, next probe's record written, exit 1 | `T::test_probe_calling_sys_exit_fails_only_that_probe[3]` |
-| `KeyboardInterrupt` in a probe | propagates (temporary root still removed by `finally`) | not covered by a test |
+| custom `BaseException` subclass raised after writing under `--wiki` | probe failure, next probe's record written, guard line printed, exit 1 | `T::test_probe_raising_a_custom_base_exception_fails_only_that_probe` |
+| failing probe with a record from an earlier run in `--out` | old record deleted before the probe runs, exit 1 | `T::test_failed_probe_leaves_no_record_from_an_earlier_run` |
+| `KeyboardInterrupt` in a probe | propagates out of `main()`; `KB_PROJECT_ROOT` restored to its previous value | `T::test_keyboard_interrupt_propagates_and_restores_kb_project_root` (in-process) |
 
 Note: `bench/knowledge/probes/` does not exist until the first probe card adds a file (git does not keep an empty directory and no placeholder is in `allow_paths`), so a bare `python bench/knowledge/run.py` exits 2 per R7 until then.

@@ -245,8 +245,12 @@ def main(argv: list[str] | None = None) -> int:
             tmp = Path(tempfile.mkdtemp(prefix=f"kbeval-{probe}-"))
             ctx = Context(tmp=tmp, data=BENCH / "data" / probe, wiki=wiki, raw=raw, out=out)
             try:
+                # A record left by an earlier run must not stand in for this one.
+                (out / f"{probe}.json").unlink(missing_ok=True)
                 invariants, arms = run_probe(path, ctx)
-            except (Exception, SystemExit) as exc:  # a probe failure, sys.exit included
+            except KeyboardInterrupt:
+                raise
+            except BaseException as exc:  # any other exception, sys.exit included
                 cause = "".join(traceback.format_exception_only(exc)).strip()
                 say(f"{probe} failed: {cause}", sys.stderr)
                 exit_code = 1

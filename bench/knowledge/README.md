@@ -19,7 +19,7 @@ Default paths are relative to the checkout root. A probe is a regular file (or a
 | Code | Meaning |
 |---|---|
 | 0 | Every probe returned a valid result and no guarded directory changed. |
-| 1 | A probe failed (no `run`, `run` raised, `run` called `sys.exit` with any code, or an invalid return value), a guarded directory changed, or a guarded directory could not be listed. After a probe failure the other probes still run, write their records and the guard still runs; the failed probe writes none. `KeyboardInterrupt` stops the run. |
+| 1 | A probe failed (no `run`, an invalid return value, or any exception other than `KeyboardInterrupt` while it was imported or run, `sys.exit` with any code included), a guarded directory changed, or a guarded directory could not be listed. After a probe failure the other probes still run, write their records and the guard still runs. The failed probe has no record: `<out>/<probe>.json` from an earlier run is deleted before each probe runs. `KeyboardInterrupt` stops the run. |
 | 2 | Usage error: `--probe` names no file in the probes directory, or `--wiki`, `--raw` or `--probes-dir` is not a directory. No probe runs. |
 
 ## Record
