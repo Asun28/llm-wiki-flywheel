@@ -1,7 +1,7 @@
 ---
 id: T1-KBEVAL-CITATIONS
 title: "The `citations` probe reports how many citations of pages outside the prompt context, and of pages that do not exist, `query_wiki` returns for scripted answers"
-status: todo
+status: merged
 branch: T1-KBEVAL-CITATIONS
 worktree: D:\wt\llm-wiki-flywheel\T1-KBEVAL-CITATIONS
 plan_ref: plans/kb-baseline.md#order-of-work
