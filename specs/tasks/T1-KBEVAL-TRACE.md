@@ -252,3 +252,71 @@ before: band_high=1 band_mid=4 band_low=66 sentences=71 sentences_short=3  sampl
 after:  band_high=1 band_mid=5 band_low=67 sentences=73 sentences_short=19 sample_pages=10 sample_sentences=20
 ```
 These equal the attempt-1 numbers. Refs and templates did not change. `sentences_short` rose by 16 because list markers (`1.`, `2.` and so on) are R3 sentence pieces again. The run exits 0 with no `guarded directory changed:` line.
+
+## Attempt 4 evidence
+
+R3 decision 3 blocked `196a022` with 2 findings. RED `c461d24`, GREEN `f32819e`. The attempt-3 rule stands: R3's text decides every rule it states, and CommonMark only recognises the blocks R3 excludes.
+
+### Commits
+- `c461d24` RED: 7 new tests run against `196a022`. 7 failed, all on `AssertionError`; 94 passed. The 7 are 5 block rows and 2 sample-level tests (the reviewer's empty-item input and an Arabic-Indic digit marker).
+- `f32819e` GREEN: 102 passed. It adds the row `ideographic-space-line-is-not-blank` after mutation Q6 showed the space-and-tab blank rule untested. That row also fails on `196a022`.
+
+### Findings
+| Finding | Fix | Tests |
+|---|---|---|
+| 1 empty list item survives a blank line | A list item that began with a blank line and has no content yet ends at the next blank line (CommonMark 0.31.2, List items: "a list item can begin with at most one blank line") | `empty-item-ends-at-a-blank-line` (the reviewer's input), `test_sample_holds_the_sentences_commonmark_keeps[empty-item-then-blank-line]` |
+| 2 `\d` matches Unicode digits | `ORDERED` uses `[0-9]{1,9}`. Every blank-line test uses space and tab only (`is_blank`, and the table cell trim). | `non-ascii-digit-is-not-a-list-marker`, `test_sample_holds_the_sentences_commonmark_keeps[arabic-indic-digit-marker]`, `ideographic-space-line-is-not-blank` |
+
+Regex audit of the CommonMark patterns:
+- `FENCE_OPEN`, `FENCE_CLOSE`, `ATX`, `SETEXT`, `THEMATIC`, `TABLE_DELIMITER`, `BULLET`: white space is `[ \t]` only.
+- `ORDERED`: digits are `[0-9]`.
+- `LINE`: CommonMark line ends `\n`, `\r\n` and `\r`.
+- `FENCE_OPEN` keeps `re.DOTALL`; it only matters for an info string, and lines carry no line end. No pattern uses `\w`, `\s` or `\d`.
+- Unicode classes remain only where R3 or R5 name them: `SENTENCE_END` (`\s` for R3's white space, `。！？`), `WORD` (R5's `\w+`), and the sentence strip (R3's white space).
+
+### Differential check (scratch only; nothing of it is committed)
+The probe imports neither markdown-it-py nor marko.
+- **Method:** a scratch script parses each snippet with `MarkdownIt("commonmark").enable("table")`. It marks as excluded every line in the `map` of a `fence`, `heading_open` or `table_open` token at any depth, and compares line by line with `classify_lines` (the Evidence Trail switched off, since it is R3 text, not CommonMark).
+- **Inputs:** all block snippets in `test_trace.py` (`BLOCK_CASES`, `EN_BODY`, `ZH_BODY`), plus generated combinations under fixed seeds. The generator covers:
+  - containers: `>` with none, one or two spaces or a tab; `-`, `*`, `+`, `1.`, `1)`, `2.`, `10)` with 1 to 5 spaces or a tab; empty items with and without a following blank line; nesting both ways; lazy lines;
+  - fences: backtick and tilde, 3 to 5 characters, info strings with and without a backtick, 0 to 4 columns of indent, unclosed fences;
+  - ATX headings with 1 to 7 `#` and setext headings;
+  - tables with and without outer pipes, and mismatched cell counts.
+- **Tiebreaker:** for each disagreement, marko 2.2.2 (CommonMark 0.31.2 plus GFM), with block line ranges taken from its parser. marko is not the primary reference because it departs from the spec in two places the tests cover. It consumes a tab after `>` whole, so it reads `tab-after-blockquote-marker-is-indent` as a fence. It also treats a U+3000 line as blank.
+
+Counts:
+- **First run** (attempt-3 probe `196a022`, seed 20261114, 641 cases = 41 test snippets + 600 generated): 45 disagreements.
+- **Final runs** (probe `f32819e`, seeds 20261114, 7 and 99, each 1547 cases = 47 test snippets + 1500 generated, 4641 cases in all): 58 disagreements (21, 16, 21).
+
+| Class | Count | What |
+|---|---|---|
+| (a) probe bug | 0 left; 4 found and fixed in this attempt | empty item at a blank line (finding 1); a line indented 4+ columns ends a table; a lazy line is not a table header; a line indented 4+ columns is not a table header. Each has a committed row. Finding 2 (Unicode digits) was not generated and has its own rows. |
+| (b) markdown-it-py differs from CommonMark/GFM | 52 (19, 14, 19) | On every disputed line the probe equals marko. Kinds listed below. |
+| ruled by decision 2 | 6 (the same 2 test rows in each seed) | `delimiter-without-pipe-is-prose` and `dash-underline-under-a-pipe-line-is-setext`: markdown-it-py and marko both read a table there. The probe follows the decision-2 ruling that the header and the delimiter row each need an unescaped pipe. The GFM spec states no such rule (https://github.github.com/gfm/#tables-extension-). |
+| (c) construct R3 does not exclude, both keep | 0 | Indented code, HTML blocks and thematic breaks are kept on both sides, so they produce no disagreement. |
+
+(b) kinds:
+- **Lazy continuation:** markdown-it-py builds a table from, or keeps a table going through, lines that CommonMark treats as lazy paragraph continuation inside a blockquote or list item (https://spec.commonmark.org/0.31.2/#lazy-continuation-line).
+- **Cell-count mismatch in a container:** inside a list item or blockquote, markdown-it-py recognises a table whose header and delimiter cell counts differ. GFM: "The header row must match the delimiter row in the number of cells. If not, a table will not be recognized" (https://github.github.com/gfm/#tables-extension-).
+- **Five or more spaces after a list marker:** the item starts with indented code (https://spec.commonmark.org/0.31.2/#list-items, rule 2). markdown-it-py reads a table from that line and the next.
+- **Block-quote marker indented 4+ columns** relative to its container, after an empty list item: it is not a block-quote marker (https://spec.commonmark.org/0.31.2/#block-quote-marker, up to 3 spaces of indent). markdown-it-py opens a quote and a fence there.
+- **Fence after a lazy line:** a fence inside an ordered item after a lazy `----` line. markdown-it-py ends the item; CommonMark keeps the fence in the item, and marko agrees.
+
+### Mutation checks for the new rules (one at a time, not committed)
+| Mutation | Caught by |
+|---|---|
+| Q1 list digits match any Unicode digit | `non-ascii-digit-is-not-a-list-marker`, sample `arabic-indic-digit-marker` |
+| Q2 an empty item survives a blank line | `empty-item-ends-at-a-blank-line`, sample `empty-item-then-blank-line` |
+| Q3 a line indented 4+ does not end a table | `line-indented-four-ends-a-table` |
+| Q4 a lazy line may be a table header | `lazy-line-is-not-a-table-header` |
+| Q5 a line indented 4+ may be a table header | `line-indented-four-is-not-a-table-header` |
+| Q6 blank means any Unicode white space | `ideographic-space-line-is-not-blank` (survived before that row was added) |
+
+The attempt-3 mutations P1 to P12, plus N1, N2, N3, N5, N6, N7, N8, N9, N18 and N21, were run again on `f32819e`. All are still caught.
+
+### Demo run, before (`196a022`) and after (`f32819e`)
+```
+before: band_high=1 band_mid=5 band_low=67 sentences=73 sentences_short=19 sample_pages=10 sample_sentences=20
+after:  band_high=1 band_mid=5 band_low=67 sentences=73 sentences_short=19 sample_pages=10 sample_sentences=20
+```
+No change: the demo pages contain none of the corrected constructs. Refs and templates did not change. The run exits 0 with no `guarded directory changed:` line.
