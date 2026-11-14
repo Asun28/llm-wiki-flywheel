@@ -1,7 +1,7 @@
 ---
 id: T1-KBEVAL-PROVENANCE
 title: "The `provenance` probe reports the trust value of each cited page after one `wrong` rating, whether `refine_page` accepts a body cut to 50, 10, 1 and 0 percent, and the share of pages whose sources all lie under `raw/captures/`"
-status: todo
+status: merged
 branch: T1-KBEVAL-PROVENANCE
 worktree: D:\wt\llm-wiki-flywheel\T1-KBEVAL-PROVENANCE
 plan_ref: plans/kb-baseline.md#order-of-work
