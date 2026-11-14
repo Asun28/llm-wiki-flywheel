@@ -585,6 +585,11 @@ BLOCK_CASES = [
         ["-\t  ```\n  Item sentence has enough words to count."],
     ),
     (
+        "fence-in-a-second-ordered-item",
+        "1. First item text.\n2. ```\n   code line. More.\n   ```\nAfter.",
+        ["1.", "First item text.", "After."],
+    ),
+    (
         "tab-indented-fence-in-list-item",
         "-\tItem text here.\n\n\t```\n\tcode line.\n\t```\nAfter.",
         ["-\tItem text here.", "After."],
