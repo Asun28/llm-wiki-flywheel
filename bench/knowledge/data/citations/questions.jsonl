@@ -1,0 +1,6 @@
+{"id": "q-starter-feeding", "topic": "sourdough", "question": "How often does a baker feed a sourdough starter with flour and water?", "why": "it asks how a sourdough starter is fed, which is sourdough baking"}
+{"id": "q-autolyse", "topic": "sourdough", "question": "What happens to the flour during autolyse?", "why": "it asks about autolyse, a rest of flour and water in making sourdough dough"}
+{"id": "q-hydration", "topic": "sourdough", "question": "How is the hydration of a dough calculated from its water and flour?", "why": "it asks about the water to flour ratio of a dough, which is sourdough baking"}
+{"id": "q-spring-tide", "topic": "tides", "question": "When does a spring tide occur?", "why": "it asks when a spring tide occurs, which is a tide of the ocean"}
+{"id": "q-tidal-range", "topic": "tides", "question": "What is the tidal range of the sea?", "why": "it asks about the tidal range of the sea, which is a measure of ocean tides"}
+{"id": "q-semidiurnal", "topic": "tides", "question": "How many high waters does a semidiurnal tide have in each lunar day?", "why": "it asks about the high waters of a semidiurnal tide, which is a tide of the ocean"}
