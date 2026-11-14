@@ -49,13 +49,31 @@ ruff check bench/knowledge && python -m pytest bench/knowledge/tests/test_contra
 - Assertion: every acceptance test above passes.
 
 ## Attempt evidence
-Attempt 1. RED receipt `eea799a:bench/knowledge/tests/test_contradiction.py` (13 tests: 2 failed, 11 errors, all `FileNotFoundError` for the missing `cases.jsonl` or `probes/contradiction.py`).
+Attempt 1. RED receipt `eea799a:bench/knowledge/tests/test_contradiction.py` (13 tests: 2 failed, 11 errors, all `FileNotFoundError` for the missing `cases.jsonl` or `probes/contradiction.py`). Blocked by R3: that RED ran no assertion.
+
+Attempt 2. RED/GREEN pair:
+- RED `bfa89c5:bench/knowledge/tests/test_contradiction.py`. The probe is a stub that keeps `run(ctx)` and returns both arms `measured` with `cases` 0 and every metric (`tp` to `recall`, all `rows_`/`flagged_` keys) at 0; it reads no case set and calls neither kb function. It is well-formed, so the runner accepts it and every behavioural test reaches its assertion. Result: 13 failed, 1 passed. Every failure is an assertion: 8 `DID NOT RAISE ValueError` (acceptance 2 and the extra loader cases), `assert 0 == 73` (committed set through the probe), the four-row metric dict, the call list `[] == [...]`, `(0, 0) == (1, 1)` (no-positive fixture), `AssertionError: detect` (runner `cases`). The one pass is `test_committed_case_set_has_six_fields_...`, which reads the data file directly and does not use the probe.
+- GREEN: the commit after `bfa89c5` restores the probe byte for byte from `d27c3c4` and carries the row fixes below.
+
+Call cardinality (R3 finding F2): `test_each_arm_calls_its_function_exactly_once_per_row_with_the_r3_r4_arguments` records each stub's full call list (positional and keyword arguments) and requires exactly one call per row per arm, in row order, with `([claim], [{"id": id, "content": existing}])` and `(claim, existing)`. Mutation check, not committed: with the probe changed to call each function a second time per row, this test fails (`1 failed, 13 passed`, the failure is the call-list assertion) and every attempt-1 test still passes.
+
+Rows rewritten in attempt 2 (wording chosen from meaning alone, before either function ran on the new texts; ids, category `negated-paraphrase` and label `consistent` kept):
+
+| Row | Old claim / existing | New claim / existing | Reason |
+|---|---|---|---|
+| np-08 (F3) | "The Quill editor stores drafts only on the local device." / "The Quill editor never sends drafts to a server; they stay on the local device." | "The Quill editor stores drafts only on the local device." / "The Quill editor does not store drafts anywhere other than the local device." | Old pair stated two facts: local storage allows sending drafts to a server for processing. New pair states one storage restriction. |
+| np-10 (F4) | "From version 5 onward the Vireo cache uses the v2 format." / "From version 5 the Vireo cache no longer uses the v1 format and uses the v2 format instead." | "From version 5 the Vireo cache uses only the v2 format." / "From version 5 the Vireo cache does not use any format other than v2." | Old claim allowed v1 alongside v2; the existing text excluded v1. New pair states one format restriction. |
+| np-03 (same defect, found in the check of the other negated-paraphrase rows) | "Standard user rights are enough to install the Brisk CLI." / "The Brisk CLI does not need administrator rights to install." | "Installing the Brisk CLI needs only standard user rights." / "Installing the Brisk CLI does not need any rights beyond standard user rights." | Old pair was equal only if administrator is the one level above standard user, which is knowledge outside the texts. New pair states one requirement. |
+
+The other eight negated-paraphrase rows (np-01, 02, 04, 05, 06, 07, 09, 11) each state one fact twice and were left unchanged. Each rewritten row's `why` was updated.
+
+Detector output on those rows, before and after the rewrite: np-03, np-08 and np-10 are each flagged by both arms before (`detect` True, `signal` True) and after (`detect` True, `signal` True). The totals did not change: tp 10, fp 22, fn 31, tn 10, precision 0.3125, recall 0.24390243902439024 for both arms.
 
 | Acceptance item | Proving test or command | Result |
 |---|---|---|
 | 1. committed set loads, >= 10 rows per category [R1] [R2] | `test_committed_case_set_has_six_fields_unique_ids_and_ten_rows_per_category`, `test_committed_case_set_loads_through_the_probe_without_error` | pass (73 rows: 11/10/10/10/10/11/11) |
 | 2. one `ValueError` per cause, naming file and line [R2] | `test_line_that_is_not_a_json_object_...`, `test_row_missing_a_field_...`, `test_repeated_id_...`, `test_unknown_category_...`, `test_label_that_is_not_the_categorys_label_...` | pass |
-| 3. hand-computed metrics with stubbed functions; no-positive fixture has recall 0 [R3] [R4] [R5] | `test_both_arms_report_hand_computed_counts_ratios_and_per_category_rows`, `test_fixture_with_no_positive_row_reports_zero_recall_and_zero_precision` | pass |
+| 3. hand-computed metrics with stubbed functions; no-positive fixture has recall 0 [R3] [R4] [R5] | `test_both_arms_report_hand_computed_counts_ratios_and_per_category_rows`, `test_each_arm_calls_its_function_exactly_once_per_row_with_the_r3_r4_arguments`, `test_fixture_with_no_positive_row_reports_zero_recall_and_zero_precision` | pass |
 | 4. committed set through the runner with real functions [R3] [R4] [R5] [R6] | `test_runner_measures_both_arms_on_the_committed_set`; `python bench/knowledge/run.py --probe contradiction` | pass; exit 0, no `guarded directory changed:` line |
 | 5. each `why` names the fact; no outside knowledge [R1] | reviewer reads `bench/knowledge/data/contradiction/cases.jsonl` | for review |
 
@@ -70,7 +88,8 @@ Input forms and failure paths the loader handles:
 - unknown category: `test_unknown_category_is_rejected_with_file_and_line`
 - label that is not the category's: `test_label_that_is_not_the_categorys_label_is_rejected_with_file_and_line`
 - zero denominator for precision and recall: `test_fixture_with_no_positive_row_reports_zero_recall_and_zero_precision`
+- each function called once per row with the R3/R4 arguments: `test_each_arm_calls_its_function_exactly_once_per_row_with_the_r3_r4_arguments`
 
 Test correction after RED: `test_unknown_category_...` passed `category` to `row()` both by position and by keyword (a `TypeError` hidden at RED by the missing probe). Fixed to build the row and then override `category`; with the probe's category check removed the corrected test fails (`KeyError: 'sarcasm'`), with it present the test passes.
 
-No row was changed after the first run of either function.
+Attempt 1 changed no row after the first run of either function. Attempt 2 changed np-03, np-08 and np-10 on review evidence (table above), not on detector output.
