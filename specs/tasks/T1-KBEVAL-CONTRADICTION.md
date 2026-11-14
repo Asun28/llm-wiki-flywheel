@@ -112,13 +112,33 @@ Attempt 3 (R3 decision 2 blocked para-08 and np-06 as category-not-paraphrase). 
 | date-06 | "The Orrin dam was completed in 1967." / "Construction of the Orrin dam was completed in 1959." | unchanged / "The Orrin dam was completed in 1959." | Completion of construction and completion of the dam can differ, so both could be true. | F/F | F/F |
 | date-10 | "The Carrow manuscript was dated to 1412." / "The Carrow manuscript was dated to 1530." | "The Carrow manuscript was written in 1412." / "The Carrow manuscript was written in 1530." | Two scholars can date one manuscript differently, so both could be true; a writing year is one fact. | F/F | F/F |
 
-Checked, unchanged:
-- paraphrase: para-02, para-03, para-04, para-05, para-06, para-10.
+Attempt 3 follow-up (coordinator, before R3 decision 3): a bare count such as "has 12 nodes" admits an at-least reading, under which "12" and "40" can both be true. Every row that states a quantity, duration or size was checked; each count that the label depends on is now "exactly N" on both sides. Wording chosen from meaning before either function ran on it; ids, categories and labels kept; each `why` now says "exact".
+
+| Row | Old claim / existing | New claim / existing | Before | After |
+|---|---|---|---|---|
+| num-01 | "...has 12 nodes." / "...has 40 nodes." | "...has exactly 12 nodes." / "...has exactly 40 nodes." | F/F | F/F |
+| num-02 | "...collected 3,200 responses." / "...collected 1,150 responses." | "...collected exactly 3,200 responses." / "...collected exactly 1,150 responses." | F/F | F/F |
+| num-03 | "...has 7 billion parameters." / "...has 13 billion parameters." | "...has exactly 7 billion parameters." / "...has exactly 13 billion parameters." | F/F | F/F |
+| num-04 | "...enrolls 480 students." / "...enrolls 920 students." | "...enrolls exactly 480 students." / "...enrolls exactly 920 students." | F/F | F/F |
+| num-05 | "...contains 500 questions." / "...contains 1,000 questions." | "...contains exactly 500 questions." / "...contains exactly 1,000 questions." | F/F | F/F |
+| num-06 | "...was worth 2 million euros." / "...was worth 5 million euros." | "...was worth exactly 2 million euros." / "...was worth exactly 5 million euros." | F/F | F/F |
+| num-07 | "...covers 14 languages." / "...covers 31 languages." | "...covers exactly 14 languages." / "...covers exactly 31 languages." | F/F | F/F |
+| num-08 | "...employs 85 engineers." / "...employs 60 engineers." | "...employs exactly 85 engineers." / "...employs exactly 60 engineers." | F/F | F/F |
+| num-09 | "...is 18 kilometres long." / "...is 27 kilometres long." | "...is exactly 18 kilometres long." / "...is exactly 27 kilometres long." | F/F | F/F |
+| num-10 | "...lists 230 species." / "...lists 310 species." | "...lists exactly 230 species." / "...lists exactly 310 species." | F/F | F/F |
+| para-03 | "The Lumen cluster has 12 nodes." / "Twelve nodes make up the Lumen cluster." | "The Lumen cluster has exactly 12 nodes." / "Exactly twelve nodes make up the Lumen cluster." | F/F | F/F |
+| para-06 | "The Juniper trail is 18 kilometres long." / "The Juniper trail has a length of 18 kilometres." | "The Juniper trail is exactly 18 kilometres long." / "The Juniper trail has a length of exactly 18 kilometres." | F/F | F/F |
+| para-10 | "The Elmstead school enrolls 480 students." / "There are 480 students enrolled at the Elmstead school." | "The Elmstead school enrolls exactly 480 students." / "Exactly 480 students are enrolled at the Elmstead school." | F/F | F/F |
+
+Quantity rows checked and left unchanged: un-02, un-07, un-10, un-11 (the other text states a different fact, so the pair can be true together under either reading of the count); date-01 to date-10 and para-04, para-08 (each date is a single event: one release, opening, signing, founding, completion, end or writing); np-06 (both sides state the same span, 2020 to 2023); np-07, np-10 (version bounds are stated identically on both sides).
+
+Checked, unchanged (all attempt-3 checks):
+- paraphrase: para-02, para-04, para-05.
 - negated-paraphrase: np-01, np-02, np-09.
 - unrelated-negation (each pair can be true together): un-01 to un-11.
-- negation: neg-01 to neg-11. both-negated: bn-01 to bn-10. date: date-01, 02, 03, 05, 07, 08, 09. number: num-01 to num-10.
+- negation: neg-01 to neg-11. both-negated: bn-01 to bn-10. date: date-01, 02, 03, 05, 07, 08, 09.
 - Note: both-negated, date and number hold no `consistent` row; their rows were checked with the both-true test instead.
 
-Totals after attempt 3 are unchanged for both arms: tp 10, fp 22, fn 31, tn 10, precision 0.3125, recall 0.24390243902439024 (each rewritten row had the same flag before and after).
+Totals after attempt 3 and its follow-up are unchanged for both arms: tp 10, fp 22, fn 31, tn 10, precision 0.3125, recall 0.24390243902439024 (each rewritten row had the same flag before and after).
 
-Attempt 1 changed no row after the first run of either function. Attempt 2 changed np-03, np-08 and np-10, and attempt 3 changed the 15 rows in its table, on review evidence, not on detector output.
+Attempt 1 changed no row after the first run of either function. Attempt 2 changed np-03, np-08 and np-10, attempt 3 changed the 15 rows in its table and its follow-up the 13 rows in the exact-count table, on review evidence, not on detector output.
