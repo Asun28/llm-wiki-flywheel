@@ -52,3 +52,57 @@ ruff check bench/knowledge && python -m pytest bench/knowledge/tests/test_rebuil
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+
+Attempt 1. RED commit `900bd66`, GREEN commit `7f5d518`. Tests: `bench/knowledge/tests/test_rebuild.py`.
+
+| Acceptance item | Proving test or command | Result |
+|---|---|---|
+| 1. committed files load under R1 and R2; at least 6 sources; 3 entity and 3 concept names in two or more extractions | `test_committed_files_load_with_the_minimum_counts` (6 sources; counts read from the JSON by the test; the stub ingest receives each committed text byte for byte and each committed extraction) | pass |
+| 2. one `ValueError` per cause of R2, naming the file and the line or path | `test_a_bad_sources_line_raises_with_file_and_line` (12 causes, line 5), `test_a_bad_extraction_raises_with_file_and_path` (12 causes, each names the path), `test_an_extractions_file_that_is_not_json_raises_with_file_and_line` (line 3), `test_an_extractions_file_that_is_not_an_object_raises_with_file`; each also asserts no ingest ran | pass |
+| 3. idempotence counts equal hand-computed values for a second pass that adds a page, rewrites a page and rewrites a root file | `test_idempotence_counts_equal_hand_computed_values` (7, 3, 2; unchanged files are rewritten with equal bytes), `test_a_file_removed_by_the_second_pass_counts_as_changed` (7, 1, 1), `test_ingest_is_called_once_per_source_per_pass_on_wikis_under_tmp` (complete call list: path order twice, then path, reverse, sha256, path; arguments, raw dir, manifest and wiki of each call under `ctx.tmp`; `HASH_MANIFEST` restored) | pass |
+| 4. order counts equal hand-computed values; same lines in another order count in bytes and not in lines | `test_order_counts_equal_hand_computed_values` (reverse 0/2/1, hashed 1/1/0; `entities/shared.md` differs in bytes only; root `log.md` differs and is not counted), `test_a_page_that_differs_by_a_blank_line_counts_in_bytes_not_in_lines`, `test_the_hashed_order_literal_matches_sha256` | pass |
+| 5. `sees_` metrics follow the stub; variables hold other ids only during the model step; clean listing gives `unmeasured` with the count | `test_scan_metrics_follow_the_answers_of_each_step` (two answer sets, 0/1/1 and 1/0/0; the stub names each step by what it observes), `test_each_scan_step_changes_one_input_and_undoes_it`, `test_a_source_listed_on_the_clean_call_makes_the_arm_unmeasured` (3 in the reason, no further call), `test_a_scan_that_raises_leaves_every_input_as_it_was` (model, template, source), `test_a_template_outside_the_project_root_is_not_edited` | pass |
+| 6. committed set through the runner with the real functions and model functions that raise | `test_committed_set_runs_through_the_runner`, `test_the_real_ingest_runs_once_per_source_per_pass_and_no_model_function_runs` (subprocess runner; the probe file in the temporary probes dir wraps the real probe, replaces `kb.utils.llm.call_llm`, `call_llm_json`, `get_client`, `_make_api_call`, `kb.utils.cli_backend.call_cli`, `kb.ingest.extractors.call_llm_json`, `extract_from_source` in `kb.ingest.extractors` and `kb.ingest.pipeline`, and `kb.query.embeddings.rebuild_vector_index` with functions that record and raise; records 0 such calls and 36 real ingests in the expected order) | pass |
+
+RED against the stub (`run` returns three arms measured with 0 cases and no metrics and `invariants` `[]`; no `kb` call): 42 failed, 1 passed. Failures: 30 `pytest.raises` DID NOT RAISE, 12 `AssertionError`; no import or missing-file error. The 1 pass is `test_the_hashed_order_literal_matches_sha256`, which checks the test's own literal. GREEN: 43 passed.
+
+Expected values come from the test: the stub writers fix which files each call writes, and the counts are worked out by hand from them in the comments; the sha256 order is a literal checked against `hashlib`; acceptance 6 counts come from the row count of `sources.jsonl`.
+
+Mutation checks (applied to the probe, run, then restored from `7f5d518`; none committed):
+
+| Mutation | Tests failing |
+|---|---|
+| second ingest skipped | 3 (both idempotence count tests, call list) |
+| changed files = added or removed only (hash ignored) | 1 |
+| `page_files_changed_by_second` = all changed files | 1 |
+| reverse order = path order | 3 |
+| empty lines kept in the line multiset | 1 |
+| lines compared as bytes | 2 |
+| scan counts only the `changed` list | 2 |
+| model variables not restored | 6 |
+| appended line not removed | 5 |
+| no `unmeasured` on a clean listing | 1 |
+| list items of an extraction not checked (`all()` rule) | 3 |
+| `HASH_MANIFEST` not redirected to the case | 1 |
+| constant result (the RED stub) | 42 |
+
+Input forms and failure paths:
+
+| Form | Rule | Test |
+|---|---|---|
+| `sources.jsonl` line | JSON object with `path` and `text`, both non-empty strings; `path` matches `articles/<slug>.md`; `path` unique | `test_a_bad_sources_line_raises_with_file_and_line` |
+| `extractions.json` file | valid JSON (error names the line), top level an object | the two `extractions_file` tests |
+| `extractions.json` entry | one per source and none for another path; an object; `title` a non-empty string; `author` and the other summary string fields strings when present; `entities_mentioned` and `concepts_mentioned` present and every item a non-empty string; `key_claims` every item a non-empty string when present | `test_a_bad_extraction_raises_with_file_and_path` |
+| template to edit | `article.yaml` under `KB_PROJECT_ROOT` and not in the checkout, else `ValueError` before any change | `test_a_template_outside_the_project_root_is_not_edited` |
+| scan call raising in a step | variables, template and source restored | `test_a_scan_that_raises_leaves_every_input_as_it_was` |
+
+Deviation to review: `ingest_source` is called with `_skip_vector_rebuild=True` in addition to the arguments of R3. Without it each ingest rebuilds the vector index, which loads the embedding model (a download where it is not cached, as on CI) and writes `.data/vector_index.db` beside the wiki. The index is outside the wiki, so no measured file depends on it.
+
+Measured on the committed set (`python bench/knowledge/run.py --probe rebuild`, exit 0, no guard line):
+- idempotence: `files_after_first=17 files_changed_by_second=2 page_files_changed_by_second=0` (the two are the root files `contradictions.md` and `log.md`).
+- order: `page_set_equal_reverse=1 pages_differing_bytes_reverse=9 pages_differing_lines_reverse=9`, and the same three values for `hashed`. The 9 are the 4 entity and 5 concept pages shared by sources: the first source writes "Initial extraction: concept page created" and a quoted `source:` item, later ones "source reference added" and an unquoted item, so which source comes first changes the lines.
+- scan: `unmeasured`, `listed_clean=6`. `ingest_source` writes no `_template/<type>` keys to the manifest, so `find_changed_sources` reports every article as changed by a template change on the first call; the three `sees_` steps do not run.
+
+Not covered: the wiki starts with the page subdirectories only, so `index.md` and `_sources.md` do not exist and ingest skips their updates (it logs a warning); the second-ingest effect on them is not measured. Also seen in the order arm: the linker writes a link inside a source-path heading (`### From raw/articles/high-[[concepts/hydration|Hydration]].md`).
