@@ -1,7 +1,7 @@
 ---
 id: T1-KBEVAL-LINKER
 title: "The `linker` probe reports precision and recall of `inject_wikilinks` on a committed labelled case set, in total and per category"
-status: todo
+status: merged
 branch: T1-KBEVAL-LINKER
 worktree: D:\wt\llm-wiki-flywheel\T1-KBEVAL-LINKER
 plan_ref: plans/kb-baseline.md#order-of-work
