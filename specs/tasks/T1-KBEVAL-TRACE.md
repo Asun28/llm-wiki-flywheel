@@ -53,3 +53,62 @@ ruff check bench/knowledge && python -m pytest bench/knowledge/tests/test_trace.
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+
+Attempt 1. RED `ff7df45`, GREEN `a1f1089`. Tests in `bench/knowledge/tests/test_trace.py`.
+
+### Commits
+- `ff7df45` RED: the tests plus an importable stub `run(ctx)` that returns measured arms with every metric 0, no sentences, an empty sample file and `invariants: []`, reading nothing and calling no `kb` function. 47 failed, all on `AssertionError`; 1 passed (`containment[too-short]`, where the stub's `None` equals the expected `None`).
+- `a1f1089` GREEN: the real probe. 48 passed. The same commit changes two test lines after RED: the 19-character sentence now holds five words (mutation M7 below survived the RED version, because a sentence of three words is also short under R5), and the URL test got plain parameter ids. Both tests still fail against the stub.
+
+### Acceptance
+| Item | Proving test | Result |
+|---|---|---|
+| 1 [R1] | `test_pages_are_md_files_in_subdirectories_with_id_subdirectory_slash_stem`, `test_page_whose_frontmatter_does_not_parse_is_in_pages_unparsed[4]`, `test_page_with_no_ref_is_in_pages_no_source_field[4]`, `test_source_given_as_one_string_is_one_ref` | pass |
+| 2 [R2] | `test_one_ref_of_each_kind_is_counted_once_and_outside_and_url_are_never_touched` (Path.stat, Path.exists, open wrapped; asserts the wrappers did see the text and missing refs), `test_ref_outside_raw_is_counted_outside_without_a_file_system_call[8]`, `test_url_ref_is_counted_url_without_a_file_system_call[2]`, `test_utf8_file_with_a_text_suffix_is_a_text_ref[3]`, `test_regular_file_with_another_suffix_is_non_text_and_is_not_read[3]`, `test_ref_with_no_regular_file_is_missing[2]`, `test_text_suffix_that_does_not_decode_as_utf8_is_undecodable` | pass |
+| 3 [R3] | `test_body_yields_the_expected_sentences_with_indexes_and_offsets[en,zh]`, `test_offsets_hold_for_a_page_with_crlf_line_ends` | pass |
+| 4 [R4] [R5] | `test_short_sentences_are_counted_short_and_in_no_band` (19 chars of five words, 7-char Chinese, 20 chars of three words; 20-char five-word and 8-char Chinese controls are banded) | pass |
+| 5 [R5] [R6] | `test_containment_is_the_share_of_ngrams_found_in_a_source[7]` (1.0, 0.0, 0.5, Chinese 1.0, any source, no gram across two files, too short), `test_band_counts_follow_containment_and_sum_to_sentences_with_a_text_source` (also pins the exact R6 metric names), `test_band_edges_are_high_from_0_8_and_mid_from_0_2_using_only_the_pages_sources` | pass |
+| 6 [R7] | `test_templates_with_a_quote_span_offset_or_char_field_are_counted` (`ctx.templates`; a field description or YAML comment that mentions quote is not a field name; `.txt` not counted) | pass |
+| 7 [R8] | `test_sample_takes_two_rows_from_each_of_the_30_pages_with_smallest_sha` (32 pages, expected pages and indexes computed with hashlib from the fixture ids, offsets cut the page file, byte-equal second run), `test_sample_of_a_small_wiki_takes_every_page_with_two_banded_sentences` (3 pages, one CRLF, plus a page with one banded sentence that is left out) | pass |
+| 8 [R9] [R10] | `test_wiki_with_no_page_is_unmeasured_and_writes_no_sample` (a stale sample is removed), `test_runner_on_the_demo_corpus_exits_0_with_invariant_i1` | pass |
+
+### Input forms and failure paths
+- Unparsed page: YAML error, unclosed block, non-mapping YAML, non-UTF-8 bytes (one test each).
+- No ref: no frontmatter, no `source` key, `source: []`, `source:` null; a single string is one ref.
+- `refs_outside`: `raw/../x`, `raw/a/../../x`, `../x`, bare name, `wiki/x`, backslash, absolute path after `raw/`, a non-string ref; each asserts no wrapped call received the path.
+- `refs_url`: `http://` and `https://`. `refs_text`: `.md`, `.txt`, `.vtt`. `refs_non_text`: `.pdf`, `.png`, no suffix (stat'd, never opened). `refs_missing`: absent file, a directory named `*.md`. `refs_undecodable`: Latin-1 `.txt`.
+
+### Mutation checks (applied one at a time, not committed)
+| Mutation | Caught by |
+|---|---|
+| M1 containment always 1.0 | 5 tests (containment none/half/no-cross-file-gram, bands, band edges) |
+| M2 Evidence Trail kept | sentences en/zh, CRLF offsets |
+| M3 sources joined into one text | containment `no-cross-file-gram` |
+| M4 sample rows chosen by index, not sha256 | 32-page sample |
+| M5 sample pages chosen by id, not sha256 | 32-page sample |
+| M6 no lexical outside check | six-kinds test, outside `dotdot`, `nested-dotdot` |
+| M7 R4 length rule removed | short-sentence test (survived before the five-word fixture) |
+| M8 high band `> 0.8` | band edges |
+| M9 stale sample kept on no pages | no-pages test |
+| M10 headings kept, M11 fences kept | sentences en/zh, CRLF offsets |
+| M12 template field name = whole item text | templates |
+| M13 root-level `.md` read as a page | 11 tests |
+| M14 sample takes pages with one banded sentence | small-wiki sample |
+
+### Readings of the card fixed in the probe
+- A sentence includes its end mark.
+- Removed text (fence, heading, table row, Evidence Trail) ends the piece before it, so each sentence is one contiguous span of the page file and R8 offsets cut it out exactly; a piece never joins text across removed lines.
+- A ref with `\`, `:` or NUL after `raw/` is `refs_outside` (a Windows drive or separator would otherwise escape `ctx.raw` with no file-system call to detect it).
+- Field names of a template are the `extract` entries: the leading identifier of a string (`title (str): ...` gives `title`) or the keys of a mapping.
+- `pages_no_text_source` includes pages with no ref.
+- The Chinese half of R4 (under 8 characters) can never form an 8-gram, so R5 also makes such a sentence short; no test can separate the two rules for it.
+
+### Demo run
+`python bench/knowledge/run.py --probe trace` (demo/wiki, demo/raw): exit 0, no `guarded directory changed:` line.
+```
+trace containment measured band_high=1 band_low=67 band_mid=5 pages_no_source_field=0 pages_no_text_source=0 pages_unparsed=0 refs_missing=0 refs_non_text=0 refs_outside=0 refs_text=15 refs_total=15 refs_undecodable=0 refs_url=0 sample_pages=10 sample_sentences=20 sentences=73 sentences_no_text_source=0 sentences_short=19
+trace templates measured templates_total=11 templates_with_claim_span=1
+```
+The one template is `book.yaml` (field `quotes`).
