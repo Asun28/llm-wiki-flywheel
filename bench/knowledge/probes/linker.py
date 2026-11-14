@@ -76,9 +76,17 @@ def load_cases(path: Path) -> list[dict]:
 
 
 def links_to(path: Path, target_id: str) -> int:
-    from kb.utils.markdown import extract_wikilinks
+    """Count `[[target_id]]` and `[[target_id|display]]` anywhere in the raw page text.
 
-    return extract_wikilinks(path.read_text(encoding="utf-8")).count(target_id)
+    Code is not stripped first: a link written inside inline code or a fence is still
+    in the file, and the inside-code control exists to see it. inject_wikilinks writes
+    `[[target|title]]` with `]` in the title escaped, so the display holds no `]`. Case,
+    surrounding spaces and a `.md` suffix are accepted as kb resolves them.
+    """
+    pattern = re.compile(
+        rf"\[\[\s*{re.escape(target_id)}(?:\.md)?\s*(?:\|[^\]]*)?\]\]", re.IGNORECASE
+    )
+    return len(pattern.findall(path.read_text(encoding="utf-8")))
 
 
 def link_row(row: dict, wiki_dir: Path) -> bool:
