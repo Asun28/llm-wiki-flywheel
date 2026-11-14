@@ -8,7 +8,6 @@ labels of that run's trace sample) and `docs/knowledge-baseline.md` (the report)
 from __future__ import annotations
 
 import json
-import math
 import re
 from collections import Counter
 
@@ -56,7 +55,9 @@ PROBE_ALT = "|".join(sorted(PROBES))
 # A backticked record path `<probe>.<arm>.<metric>`; arm and metric hold no dot or space.
 PATH = re.compile(rf"`({PROBE_ALT})\.([^`.\s]+)\.([^`\s]+)`")
 # The same path followed by ` = <number>`: the form a record number is written in.
-PATH_VALUE = re.compile(rf"`({PROBE_ALT})\.([^`.\s]+)\.([^`\s]+)` = (-?\d+(?:\.\d+)?)")
+PATH_VALUE = re.compile(
+    rf"`({PROBE_ALT})\.([^`.\s]+)\.([^`\s]+)` = (-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)"
+)
 
 
 # -- loaders ---------------------------------------------------------------------
@@ -140,19 +141,49 @@ def test_label_rows_are_unique_per_page_and_sentence():
 # -- acceptance 3 [R3] -----------------------------------------------------------
 
 
+def final_rule_errors(rows: list[dict]) -> list[str]:
+    """Return one message per row that breaks the R3 rule for labels and `final`."""
+    errors = []
+    for i, row in enumerate(rows, start=1):
+        if row["labelA"] not in LABEL_SET or row["labelB"] not in LABEL_SET:
+            errors.append(f"line {i}: label outside the closed set")
+        elif not isinstance(row["ownerRuled"], bool):
+            errors.append(f"line {i}: ownerRuled is not a boolean")
+        elif row["ownerRuled"]:
+            if row["final"] not in LABEL_SET:
+                errors.append(f"line {i}: owner-ruled final outside the closed set")
+        elif row["labelA"] == row["labelB"]:
+            if row["final"] != row["labelA"]:
+                errors.append(f"line {i}: agreed labels but final differs")
+        elif row["final"] is not None:
+            errors.append(f"line {i}: labels differ, no ruling, final is not null")
+    return errors
+
+
+def fixture_row(label_a: str, label_b: str, final, owner_ruled: bool) -> dict:
+    return {"labelA": label_a, "labelB": label_b, "final": final, "ownerRuled": owner_ruled}
+
+
 def test_labels_are_in_the_closed_set_and_final_follows_the_rule():
     rows = label_rows()
     assert rows, "labels.jsonl has no rows"
-    for i, row in enumerate(rows, start=1):
-        assert row["labelA"] in LABEL_SET, f"line {i}"
-        assert row["labelB"] in LABEL_SET, f"line {i}"
-        assert isinstance(row["ownerRuled"], bool), f"line {i}"
-        if row["ownerRuled"]:
-            assert row["final"] in LABEL_SET, f"line {i}"
-        elif row["labelA"] == row["labelB"]:
-            assert row["final"] == row["labelA"], f"line {i}"
-        else:
-            assert row["final"] is None, f"line {i}"
+    assert final_rule_errors(rows) == []
+
+
+def test_final_rule_rejects_an_owner_ruling_that_overrides_agreed_labels():
+    # R3: when labelA equals labelB, final is that label whatever ownerRuled says.
+    bad = fixture_row("supported", "supported", "unsupported", True)
+    assert len(final_rule_errors([bad])) == 1
+
+
+def test_final_rule_accepts_an_owner_ruling_on_differing_labels_and_null_without_one():
+    rows = [
+        fixture_row("supported", "partly-supported", "unsupported", True),
+        fixture_row("supported", "partly-supported", None, False),
+        fixture_row("not-a-claim", "not-a-claim", "not-a-claim", False),
+        fixture_row("not-a-claim", "not-a-claim", "not-a-claim", True),
+    ]
+    assert final_rule_errors(rows) == []
 
 
 # -- acceptance 4 [R4] [R5] [R6] ------------------------------------------------
@@ -175,7 +206,8 @@ def test_every_backticked_record_path_in_the_report_is_in_summary():
     assert missing == []
 
 
-def test_every_record_number_in_the_report_equals_summary_to_four_decimals():
+def test_every_record_number_in_the_report_is_the_exact_text_of_its_summary_value():
+    # The value is written exactly as json.dumps prints it from summary.json: no rounding.
     data = summary()
     pairs = PATH_VALUE.findall(report())
     assert pairs, "the report writes no record number beside its path"
@@ -183,7 +215,7 @@ def test_every_record_number_in_the_report_equals_summary_to_four_decimals():
     for probe, arm, name, written in pairs:
         value = data["records"].get(probe, {}).get("arms", {}).get(arm, {})
         value = value.get("metrics", {}).get(name)
-        if value is None or not math.isclose(float(written), value, abs_tol=5e-5):
+        if value is None or written != json.dumps(value):
             wrong.append((f"{probe}.{arm}.{name}", written, value))
     assert wrong == []
 
@@ -265,3 +297,66 @@ def test_labels_section_states_agreement_kappa_and_null_count_recomputed_from_la
     assert stated_agreement.group(1) == f"{agreement:.2f}"
     assert stated_kappa.group(1) == f"{cohen_kappa(a, b):.2f}"
     assert int(stated_null.group(1)) == sum(row["final"] is None for row in rows)
+
+
+# -- forbid: no number in the report from outside summary.json or labels.jsonl ----
+
+# A number token: digits not preceded by a letter, digit, `#`, `.` or `-` and not
+# followed by a letter or digit, so identifiers such as `I5`, `R5`, `T1` and `#154`
+# are not read as numbers.
+NUMBER = re.compile(r"(?<![\w#.-])-?\d+(?:\.\d+)?(?!\w)")
+# Allow-list of identifier patterns, each removed before the scan:
+#   a backticked span (record path, file name, command, SHA) unless it is a bare number;
+#   `Phase <n>` (the phase name) and `Lead <n>` (the lead numbers of the intent);
+#   the two label figures of acceptance 5, checked to two decimals by their own test.
+IDENTIFIERS = [
+    re.compile(r"`(?!-?\d+(?:\.\d+)?`)[^`\n]+`"),
+    re.compile(r"\bPhase \d+\b"),
+    re.compile(r"\bLead \d+\b"),
+    re.compile(r"Raw agreement rate: -?\d+\.\d\d\b"),
+    re.compile(r"Cohen's kappa: -?\d+\.\d\d\b"),
+]
+
+
+def summary_numbers(node) -> set[str]:
+    """Every number in summary.json: numeric values and the digits inside its strings."""
+    found: set[str] = set()
+    if isinstance(node, bool):
+        return found
+    if isinstance(node, (int, float)):
+        found.add(json.dumps(node))
+    elif isinstance(node, str):
+        found.update(NUMBER.findall(node))
+    elif isinstance(node, dict):
+        for value in node.values():
+            found |= summary_numbers(value)
+    elif isinstance(node, list):
+        for value in node:
+            found |= summary_numbers(value)
+    return found
+
+
+def label_numbers(rows: list[dict]) -> set[str]:
+    """Every count the report may take from labels.jsonl."""
+    counts = [len(rows), sum(row["final"] is None for row in rows), 0]
+    for key in ("labelA", "labelB", "final"):
+        counts += Counter(row[key] for row in rows).values()
+    counts += Counter((row["band"], row["final"]) for row in rows).values()
+    return {str(n) for n in counts}
+
+
+def stray_numbers(text: str, allowed: set[str]) -> list[str]:
+    for pattern in IDENTIFIERS:
+        text = pattern.sub(" ", text)
+    return [n for n in NUMBER.findall(text) if n not in allowed]
+
+
+def test_number_scan_flags_a_number_from_outside_the_data():
+    allowed = {"0.25", "12", "56"}
+    text = "`linker.inject.tp` = 12. Lead 3, Phase 0, I5, R5, #154. n = 56. Took 9 calls, `7`."
+    assert stray_numbers(text, allowed) == ["9", "7"]
+
+
+def test_every_number_in_the_report_comes_from_summary_or_labels():
+    allowed = summary_numbers(summary()) | label_numbers(label_rows())
+    assert stray_numbers(report(), allowed) == []
