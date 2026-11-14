@@ -166,8 +166,11 @@ SIGNAL_FLAGS = {
 }
 
 
-def stub_detect(flags):
-    def detect(new_claims, existing_pages):
+def stub_detect(flags, calls=None):
+    def detect(*args, **kwargs):
+        if calls is not None:
+            calls.append((args, kwargs))
+        new_claims, existing_pages = args
         (page,) = existing_pages
         key = (tuple(new_claims), page["id"], page["content"])
         return [{"existing_page": page["id"]}] if key in flags else []
@@ -175,8 +178,14 @@ def stub_detect(flags):
     return detect
 
 
-def stub_signal(flags):
-    return lambda claim, existing: (claim, existing) in flags
+def stub_signal(flags, calls=None):
+    def signal(*args, **kwargs):
+        if calls is not None:
+            calls.append((args, kwargs))
+        claim, existing = args
+        return (claim, existing) in flags
+
+    return signal
 
 
 def zero_categories(**counts) -> dict:
@@ -209,6 +218,35 @@ def test_both_arms_report_hand_computed_counts_ratios_and_per_category_rows(
         "detect": {"status": "measured", "cases": 4, "metrics": detect},
         "signal": {"status": "measured", "cases": 4, "metrics": signal},
     }
+
+
+def test_each_arm_calls_its_function_exactly_once_per_row_with_the_r3_r4_arguments(
+    probe, tmp_path, monkeypatch
+):
+    detect_calls: list = []
+    signal_calls: list = []
+    monkeypatch.setattr(
+        "kb.ingest.contradiction.detect_contradictions", stub_detect(DETECT_FLAGS, detect_calls)
+    )
+    monkeypatch.setattr(
+        "kb.ingest.contradiction._has_contradiction_signal",
+        stub_signal(SIGNAL_FLAGS, signal_calls),
+    )
+
+    probe.run(ctx_with_rows(tmp_path, FOUR_ROWS))
+
+    assert detect_calls == [
+        ((["claim one"], [{"id": "r1", "content": "existing one"}]), {}),
+        ((["claim two"], [{"id": "r2", "content": "existing two"}]), {}),
+        ((["claim three"], [{"id": "r3", "content": "existing three"}]), {}),
+        ((["claim four"], [{"id": "r4", "content": "existing four"}]), {}),
+    ]
+    assert signal_calls == [
+        (("claim one", "existing one"), {}),
+        (("claim two", "existing two"), {}),
+        (("claim three", "existing three"), {}),
+        (("claim four", "existing four"), {}),
+    ]
 
 
 def test_fixture_with_no_positive_row_reports_zero_recall_and_zero_precision(
