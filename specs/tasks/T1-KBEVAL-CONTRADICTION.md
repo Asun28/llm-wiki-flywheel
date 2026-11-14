@@ -47,3 +47,30 @@ ruff check bench/knowledge && python -m pytest bench/knowledge/tests/test_contra
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+Attempt 1. RED receipt `eea799a:bench/knowledge/tests/test_contradiction.py` (13 tests: 2 failed, 11 errors, all `FileNotFoundError` for the missing `cases.jsonl` or `probes/contradiction.py`).
+
+| Acceptance item | Proving test or command | Result |
+|---|---|---|
+| 1. committed set loads, >= 10 rows per category [R1] [R2] | `test_committed_case_set_has_six_fields_unique_ids_and_ten_rows_per_category`, `test_committed_case_set_loads_through_the_probe_without_error` | pass (73 rows: 11/10/10/10/10/11/11) |
+| 2. one `ValueError` per cause, naming file and line [R2] | `test_line_that_is_not_a_json_object_...`, `test_row_missing_a_field_...`, `test_repeated_id_...`, `test_unknown_category_...`, `test_label_that_is_not_the_categorys_label_...` | pass |
+| 3. hand-computed metrics with stubbed functions; no-positive fixture has recall 0 [R3] [R4] [R5] | `test_both_arms_report_hand_computed_counts_ratios_and_per_category_rows`, `test_fixture_with_no_positive_row_reports_zero_recall_and_zero_precision` | pass |
+| 4. committed set through the runner with real functions [R3] [R4] [R5] [R6] | `test_runner_measures_both_arms_on_the_committed_set`; `python bench/knowledge/run.py --probe contradiction` | pass; exit 0, no `guarded directory changed:` line |
+| 5. each `why` names the fact; no outside knowledge [R1] | reviewer reads `bench/knowledge/data/contradiction/cases.jsonl` | for review |
+
+Input forms and failure paths the loader handles:
+- valid line with the six string fields: `test_committed_case_set_loads_through_the_probe_without_error`
+- line that is JSON but not an object: `test_line_that_is_not_a_json_object_is_rejected_with_file_and_line`
+- line that is not JSON: `test_line_that_is_not_json_at_all_is_rejected_with_file_and_line`
+- blank line (rejected as not JSON): `test_blank_line_is_rejected_with_file_and_line`
+- missing field: `test_row_missing_a_field_is_rejected_with_file_and_line`
+- field that is not a string: `test_field_that_is_not_a_string_is_rejected_with_file_and_line`
+- repeated `id`: `test_repeated_id_is_rejected_with_file_and_line`
+- unknown category: `test_unknown_category_is_rejected_with_file_and_line`
+- label that is not the category's: `test_label_that_is_not_the_categorys_label_is_rejected_with_file_and_line`
+- zero denominator for precision and recall: `test_fixture_with_no_positive_row_reports_zero_recall_and_zero_precision`
+
+Test correction after RED: `test_unknown_category_...` passed `category` to `row()` both by position and by keyword (a `TypeError` hidden at RED by the missing probe). Fixed to build the row and then override `category`; with the probe's category check removed the corrected test fails (`KeyError: 'sarcasm'`), with it present the test passes.
+
+No row was changed after the first run of either function.
