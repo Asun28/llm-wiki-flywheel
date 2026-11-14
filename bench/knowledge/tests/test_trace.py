@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import builtins
+import errno
 import hashlib
 import importlib.util
 import json
@@ -366,6 +367,7 @@ x = 1. Not a sentence.
 ```
 | col. | value. |
 | --- | --- |
+
 This sentence spans
 two lines.
 No end mark before a heading
@@ -393,6 +395,8 @@ ZH_BODY = """# 标题。
 代码里的句子。
 ```
 | 表格。 | 行。 |
+| --- | --- |
+
 结尾没有空格的句子。
 ## Evidence Trail
 - 证据记录的句子。"""
@@ -424,6 +428,308 @@ def test_offsets_hold_for_a_page_with_crlf_line_ends(probe):
 
     assert [s["text"].replace("\r\n", "\n") for s in found] == EN_SENTENCES
     assert all(text[s["start"] : s["end"]] == s["text"] for s in found)
+
+
+# -- acceptance 3, attempt 2: R3 constructs follow CommonMark and GFM block structure --
+# Each row is (id, body, expected sentences). A sentence never starts or ends on a
+# container marker (`>`, a list marker); a marker inside a multi-line sentence stays,
+# because the sentence is one contiguous span of the page file.
+
+BLOCK_CASES = [
+    # GFM tables: header, delimiter and rows are removed; outer pipes are optional.
+    (
+        "table-no-outer-pipes",
+        "Intro sentence here.\n\na | b\n--- | ---\none. | two.\n\nAfter the table.",
+        ["Intro sentence here.", "After the table."],
+    ),
+    (
+        "table-in-blockquote",
+        "> | a | b |\n> | --- | --- |\n> | one. | two. |\n\nAfter the table.",
+        ["After the table."],
+    ),
+    (
+        "table-in-list-item",
+        "- Item text here.\n\n  | a | b |\n  |:--|--:|\n  | x. | y. |\n\nAfter.",
+        ["Item text here.", "After."],
+    ),
+    (
+        "table-row-without-pipes-ends-at-heading",
+        "a | b\n-|-\nrow without pipes.\n# Heading\nAfter heading.",
+        ["After heading."],
+    ),
+    (
+        "table-ends-at-blank-line",
+        "| a |\n| - |\n| x. |\n\nProse after blank.",
+        ["Prose after blank."],
+    ),
+    (
+        "pipe-line-without-delimiter-is-prose",
+        "| a pipe opens this line. It is prose.\nMore prose here.",
+        ["| a pipe opens this line.", "It is prose.", "More prose here."],
+    ),
+    (
+        "cell-count-mismatch-is-prose",
+        "a | b\n--- | --- | ---\nText here.",
+        ["a | b\n--- | --- | ---\nText here."],
+    ),
+    # Setext headings: text and underline are removed.
+    (
+        "setext-equals",
+        "Title of the page\n=================\nBody sentence here.",
+        ["Body sentence here."],
+    ),
+    (
+        "setext-dash",
+        "Second level title\n---\nBody sentence here.",
+        ["Body sentence here."],
+    ),
+    (
+        "setext-two-lines",
+        "First title line\nsecond title line\n===\nBody.",
+        ["Body."],
+    ),
+    (
+        "setext-in-blockquote",
+        "> Quoted title\n> ---\n> Quoted body here.",
+        ["Quoted body here."],
+    ),
+    (
+        "setext-wins-over-one-cell-table",
+        "| a |\n---\nBody here.",
+        ["Body here."],
+    ),
+    # A --- line after a blank line, or after a lazy line, is a thematic break: kept text.
+    (
+        "thematic-break-after-blank-line",
+        "Para one ends here.\n\n---\n\nAfter the break.",
+        ["Para one ends here.", "---\n\nAfter the break."],
+    ),
+    (
+        "thematic-break-after-blockquote",
+        "> Quoted line here.\n---\nAfter rule.",
+        ["Quoted line here.", "---\nAfter rule."],
+    ),
+    # Fences.
+    (
+        "backtick-info-with-backtick-is-inline-code",
+        "```inline`code``` opens this prose line. Second sentence follows.",
+        ["```inline`code``` opens this prose line.", "Second sentence follows."],
+    ),
+    (
+        "fence-in-blockquote",
+        "> ```\n> code line. More.\n> ```\nAfter the quote.",
+        ["After the quote."],
+    ),
+    (
+        "fence-in-list-item",
+        "- Item text here.\n\n  ```\n  code line. More code.\n  ```\n- Next item here.",
+        ["Item text here.", "Next item here."],
+    ),
+    (
+        "unclosed-fence-ends-with-its-blockquote",
+        "> ```\n> code never closed.\n\nProse after the quote.",
+        ["Prose after the quote."],
+    ),
+    (
+        "unclosed-fence-ends-with-its-list-item",
+        "- ```\n  code never closed.\n\nProse after the list.",
+        ["Prose after the list."],
+    ),
+    (
+        "closing-fence-same-character-at-least-as-long",
+        "````\ncode.\n```\n~~~~\nstill code.\n````\nAfter.",
+        ["After."],
+    ),
+    (
+        "closing-fence-with-info-is-content",
+        "```\ncode.\n``` not closing\nstill code.\n```\nAfter.",
+        ["After."],
+    ),
+    (
+        "fence-indented-four-is-not-a-fence",
+        "Para here.\n\n    ```\n    indented code line.\n\nAfter.",
+        ["Para here.", "```\n    indented code line.", "After."],
+    ),
+    # ATX headings inside containers; four spaces of indent is not a heading.
+    (
+        "atx-in-blockquote-and-list-item",
+        "> # Quoted heading\n> Quoted body here.\n\n- ## Item heading\n  Item body here.",
+        ["Quoted body here.", "Item body here."],
+    ),
+    (
+        "atx-indented-four-is-text",
+        "Para one here.\n    # not a heading line.",
+        ["Para one here.", "# not a heading line."],
+    ),
+    # Evidence Trail: an ATX level-2 heading with optional closing hashes, ended by the
+    # next level-2 heading outside code.
+    (
+        "evidence-trail-with-closing-hashes",
+        "Body one here.\n## Evidence Trail ##\n- entry one.\n## Next ##\nBody two here.",
+        ["Body one here.", "Body two here."],
+    ),
+    (
+        "evidence-trail-heading-inside-fence-does-not-end-it",
+        "Body one here.\n## Evidence Trail\n```\n## not a heading\n```\n- entry.\n## Next\n"
+        "Body two here.",
+        ["Body one here.", "Body two here."],
+    ),
+    (
+        "evidence-trail-ended-by-setext-level-two",
+        "Body one here.\n## Evidence Trail\n- entry one.\n\nNext section\n---\nBody two here.",
+        ["Body one here.", "Body two here."],
+    ),
+    # Container markers are not sentence text, and a list marker's period ends nothing.
+    (
+        "ordered-list-markers",
+        "1. First item text.\n2. Second item text.",
+        ["First item text.", "Second item text."],
+    ),
+    (
+        "quoted-sentence-over-two-lines",
+        "> This quoted sentence\n> spans two lines.",
+        ["This quoted sentence\n> spans two lines."],
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"), [c[1:] for c in BLOCK_CASES], ids=[c[0] for c in BLOCK_CASES]
+)
+def test_block_constructs_are_recognised_by_commonmark_structure(probe, body, expected):
+    lf = page_text(body, ["raw/a.md"])
+    for text in (lf, lf.replace("\n", "\r\n")):
+        found = probe.page_sentences(text)
+
+        assert [s["text"].replace("\r\n", "\n") for s in found] == expected
+        assert [s["index"] for s in found] == list(range(len(expected)))
+        assert all(text[s["start"] : s["end"]] == s["text"] for s in found)
+
+
+# -- attempt 2: frontmatter that fails in a YAML constructor [R1] --------------------
+
+
+def outcome(fn, *args):
+    """Return (result, exception) so an unexpected exception fails on an assertion."""
+    try:
+        return fn(*args), None
+    except Exception as exc:
+        return None, exc
+
+
+@pytest.mark.parametrize("value", ["2026-02-30", "2026-13-01"])
+def test_frontmatter_rejected_by_a_yaml_constructor_is_unparsed_and_other_pages_complete(
+    probe, tmp_path, value
+):
+    ctx = make_ctx(tmp_path)
+    write(ctx.raw / "articles" / "src.md", SOURCE_EN)
+    write(ctx.wiki / "concepts" / "bad-date.md", f"---\nupdated: {value}\n---\n{TWO}\n")
+    write(ctx.wiki / "concepts" / "good.md", page_text(TWO, ["raw/articles/src.md"]))
+
+    result, error = outcome(probe.run, ctx)
+
+    assert error is None
+    assert containment_arm(result)["cases"] == 2
+    assert metrics(result)["pages_unparsed"] == 1
+    assert metrics(result)["band_high"] == 2
+
+
+def test_template_rejected_by_a_yaml_constructor_is_counted_without_a_claim_span(probe, tmp_path):
+    templates = tmp_path / "tpl"
+    write(templates / "bad.yaml", "updated: 2026-02-30\nextract:\n  - quote\n")
+    write(templates / "good.yaml", "extract:\n  - quote\n")
+    ctx = make_ctx(tmp_path, templates=templates)
+
+    result, error = outcome(probe.run, ctx)
+
+    assert error is None
+    assert result["arms"]["templates"]["metrics"] == {
+        "templates_total": 2,
+        "templates_with_claim_span": 1,
+    }
+
+
+# -- attempt 2: an unreadable source is not a missing source [R2] [R6] -----------------
+
+
+def source_ctx(tmp_path: Path) -> tuple[SimpleNamespace, Path]:
+    ctx = make_ctx(tmp_path)
+    target = ctx.raw / "articles" / "locked.md"
+    write(target, SOURCE_EN)
+    write(ctx.wiki / "concepts" / "p.md", page_text(TWO, ["raw/articles/locked.md"]))
+    return ctx, target
+
+
+def test_permission_error_at_stat_propagates(probe, tmp_path, monkeypatch):
+    ctx, target = source_ctx(tmp_path)
+    real_stat = Path.stat
+
+    def stat(self, *args, **kwargs):
+        if str(self) == str(target):
+            raise PermissionError(errno.EACCES, "Permission denied", str(self))
+        return real_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", stat)
+
+    _, error = outcome(probe.run, ctx)
+
+    assert isinstance(error, PermissionError)
+
+
+def test_permission_error_at_open_propagates(probe, tmp_path, monkeypatch):
+    ctx, target = source_ctx(tmp_path)
+    real_open = builtins.open
+
+    def fake_open(file, *args, **kwargs):
+        if str(file) == str(target):
+            raise PermissionError(errno.EACCES, "Permission denied", str(file))
+        return real_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", fake_open)
+
+    _, error = outcome(probe.run, ctx)
+
+    assert isinstance(error, PermissionError)
+
+
+def test_io_error_during_read_propagates(probe, tmp_path, monkeypatch):
+    ctx, target = source_ctx(tmp_path)
+    real_open = builtins.open
+
+    class FailingRead:
+        def __init__(self, handle):
+            self.handle = handle
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.handle.close()
+            return False
+
+        def read(self, *args, **kwargs):
+            raise OSError(errno.EIO, "Input/output error", str(target))
+
+    def fake_open(file, *args, **kwargs):
+        handle = real_open(file, *args, **kwargs)
+        return FailingRead(handle) if str(file) == str(target) else handle
+
+    monkeypatch.setattr(builtins, "open", fake_open)
+
+    _, error = outcome(probe.run, ctx)
+
+    assert isinstance(error, OSError) and error.errno == errno.EIO
+
+
+def test_path_through_a_regular_file_is_missing(probe, tmp_path):
+    ctx = make_ctx(tmp_path)
+    write(ctx.raw / "articles" / "file.md", SOURCE_EN)
+    write(ctx.wiki / "concepts" / "p.md", page_text(TWO, ["raw/articles/file.md/inner.md"]))
+
+    result, error = outcome(probe.run, ctx)
+
+    assert error is None
+    assert refs_counts(metrics(result)) == {**dict.fromkeys(REF_KINDS, 0), "missing": 1}
 
 
 # -- acceptance 4: short sentences [R4] [R5] ---------------------------------------
