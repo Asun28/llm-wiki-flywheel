@@ -634,6 +634,40 @@ BLOCK_CASES = [
         "Body one here.\n```\n## Evidence Trail\n```\nAfter the fence.\n## Next\nBody two here.",
         ["Body one here.", "Body two here."],
     ),
+    # Attempt 4: an empty list item ends at a blank line, list-marker digits are ASCII
+    # only, and the three table cases the markdown-it-py differential found.
+    (
+        "empty-item-ends-at-a-blank-line",
+        "-\n\n  ```\nFirst fenced sentence contains enough words to count.\n"
+        "Second fenced sentence contains enough words to count.\n  ```\n"
+        "Ordinary body sentence should remain visible.",
+        ["-", "Ordinary body sentence should remain visible."],
+    ),
+    (
+        "non-ascii-digit-is-not-a-list-marker",
+        "١. ```\n   First sentence after the marker has enough words.\n"
+        "   Second sentence after the marker has enough words.",
+        [
+            "١.",
+            "```\n   First sentence after the marker has enough words.",
+            "Second sentence after the marker has enough words.",
+        ],
+    ),
+    (
+        "line-indented-four-ends-a-table",
+        "a | b\n--- | ---\nrow one. | two.\n    Indented code line here.\nAfter.",
+        ["Indented code line here.", "After."],
+    ),
+    (
+        "lazy-line-is-not-a-table-header",
+        "> Quoted paragraph line.\na | b\n> --- | ---\n> row. | row.",
+        ["> Quoted paragraph line.", "a | b\n> --- | ---\n> row.", "| row."],
+    ),
+    (
+        "line-indented-four-is-not-a-table-header",
+        "Para line one here.\n    a | b\n--- | ---\nAfter.",
+        ["Para line one here.", "a | b\n--- | ---\nAfter."],
+    ),
     # R3 sentence rule, literally: a list marker's period before a space ends a piece,
     # and container markers stay in the kept text.
     (
@@ -994,6 +1028,48 @@ def test_sample_of_a_small_wiki_takes_every_page_with_two_banded_sentences(probe
         page_file = pages[row["page"]].read_bytes().decode("utf-8")
         assert page_file[row["start"] : row["end"]] == row["text"]
     assert (metrics(result)["sample_pages"], metrics(result)["sample_sentences"]) == (3, 6)
+
+
+# -- attempt 4: block recognition seen through the sample [R3] [R8] -----------------
+
+FENCED_ONE = "First fenced sentence contains enough words to count."
+FENCED_TWO = "Second fenced sentence contains enough words to count."
+LEADING = "Leading body sentence has enough words to count here."
+ORDINARY = "Ordinary body sentence should remain visible."
+AFTER_ONE = "First sentence after the marker has enough words."
+AFTER_TWO = "Second sentence after the marker has enough words."
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (
+            f"{LEADING}\n\n-\n\n  ```\n{FENCED_ONE}\n{FENCED_TWO}\n  ```\n{ORDINARY}",
+            [LEADING, ORDINARY],
+        ),
+        (
+            f"١. ```\n   {AFTER_ONE}\n   {AFTER_TWO}",
+            [f"```\n   {AFTER_ONE}", AFTER_TWO],
+        ),
+    ],
+    ids=["empty-item-then-blank-line", "arabic-indic-digit-marker"],
+)
+def test_sample_holds_the_sentences_commonmark_keeps(probe, tmp_path, body, expected):
+    ctx = make_ctx(tmp_path)
+    write(
+        ctx.raw / "src.md",
+        "\n".join([LEADING, FENCED_ONE, FENCED_TWO, ORDINARY, AFTER_ONE, AFTER_TWO]),
+    )
+    page = ctx.wiki / "concepts" / "blocks.md"
+    write(page, page_text(body, ["raw/src.md"]))
+
+    result = probe.run(ctx)
+
+    rows = sample_rows(ctx)
+    page_file = page.read_bytes().decode("utf-8")
+    assert [row["text"] for row in rows] == expected
+    assert all(page_file[row["start"] : row["end"]] == row["text"] for row in rows)
+    assert metrics(result)["sentences"] == 2
 
 
 # -- acceptance 8: no pages, and the demo corpus through the runner [R9] [R10] ------
