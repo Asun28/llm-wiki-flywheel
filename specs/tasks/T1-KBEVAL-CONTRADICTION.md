@@ -25,7 +25,7 @@ acceptance:
   - 3. Same file, a four-row fixture with the two `kb` functions replaced by stubs with fixed answers: both arms report the hand-computed `tp`, `fp`, `fn`, `tn`, `precision`, `recall`, `rows_<category>` and `flagged_<category>`, and a fixture with no positive row reports `recall` 0. [R3] [R4] [R5] [dod arm 2]
   - 4. Same file, the committed set run through the runner with the real functions: exit 0, both arms `measured`, `cases` equal to the row count, `tp + fp + fn + tn` equal to `cases`, the `rows_` metrics summing to `cases`, `invariants` equal to `["I10"]`. [R3] [R4] [R5] [R6] [dod arm 2]
   - 5. Each row's `why` names the fact that makes its label true, and no label depends on knowledge outside the two texts (reviewer-verified against the diff). [R1]
-depends_on: [T1-KBEVAL-HARNESS]
+depends_on: [T1-KBEVAL-HARNESS-2]
 parallelizable_with: [T1-KBEVAL-RETRIEVAL, T1-KBEVAL-LINKER, T1-KBEVAL-CITATIONS, T1-KBEVAL-TRACE, T1-KBEVAL-REBUILD, T1-KBEVAL-PROVENANCE]
 budget: 400
 forbid: [any change under src/kb/ templates/ or tests/, a model call or network request, a threshold or pass/fail judgement on precision or recall, removing or relabelling a row because of what either function returned for it]

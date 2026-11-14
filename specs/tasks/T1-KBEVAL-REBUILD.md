@@ -30,7 +30,7 @@ acceptance:
   - 4. Same file, the same stub writing order-dependent pages: `page_set_equal_<pair>`, `pages_differing_bytes_<pair>` and `pages_differing_lines_<pair>` equal hand-computed values, and two pages with the same lines in another order count in `bytes` and not in `lines`. [R5] [dod arm 2]
   - 5. Same file, `find_changed_sources` replaced by a stub: the three `sees_` metrics follow the stub's answers, the three variables hold other ids only during the model step and their earlier values after it, and a stub that lists a source on the clean call gives `unmeasured` with the count in the reason. [R6] [R7] [R8] [dod arm 2]
   - 6. Same file, the committed set run through the runner with the real functions and a model function that raises when called: exit 0, `idempotence` and `order` `measured` with `cases` equal to the source count, `scan` `measured` or `unmeasured` with a reason, `invariants` equal to `["I3", "I4"]`. [R3] [R9] [dod arm 2]
-depends_on: [T1-KBEVAL-HARNESS]
+depends_on: [T1-KBEVAL-HARNESS-2]
 parallelizable_with: [T1-KBEVAL-CONTRADICTION, T1-KBEVAL-RETRIEVAL, T1-KBEVAL-LINKER, T1-KBEVAL-CITATIONS, T1-KBEVAL-TRACE, T1-KBEVAL-PROVENANCE]
 budget: 700
 forbid: [any change under src/kb/ templates/ or tests/, a write to the checkout's `templates/` (the template step edits the copy in the temporary project root), a model call or network request, a time or duration in the record, a threshold or pass/fail judgement on a metric]

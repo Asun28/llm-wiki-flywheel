@@ -44,7 +44,7 @@ Python 3.12 standard library and the installed `kb` package; pytest and ruff as 
 none this version
 
 ## 6. Contracts and core interfaces
-Frozen by T1-KBEVAL-HARNESS: the record shape, the `run(ctx)` entry with `ctx.tmp`, `ctx.data`, `ctx.wiki`, `ctx.raw`, `ctx.out` and `ctx.unmeasured(reason)`, the options `--probe`, `--probes-dir`, `--out`, `--wiki`, `--raw`, and the exit codes 0, 1 and 2 (spec, Interfaces and contracts). No interface of `kb` changes.
+Frozen by T1-KBEVAL-HARNESS-2: the record shape, the `run(ctx)` entry with `ctx.tmp`, `ctx.data`, `ctx.wiki`, `ctx.raw`, `ctx.out` and `ctx.unmeasured(reason)`, the options `--probe`, `--probes-dir`, `--out`, `--wiki`, `--raw`, and the exit codes 0, 1 and 2 (spec, Interfaces and contracts). No interface of `kb` changes.
 
 ## Files that change
 - bench/knowledge/run.py (new)
@@ -83,7 +83,7 @@ Frozen by T1-KBEVAL-HARNESS: the record shape, the `run(ctx)` entry with `ctx.tm
 - CHANGELOG-history.md
 
 ## Order of work
-1. T1-KBEVAL-HARNESS: the runner, the record shape, the guard, the CI step. It freezes the probe interface and runs alone.
+1. T1-KBEVAL-HARNESS-2: the runner, the record shape, the guard, the CI step. It freezes the probe interface and runs alone. Successor of T1-KBEVAL-HARNESS (goal revision 1), which stopped on a base CI breakage fixed by #146; it continues from that card's branch.
 2. T1-KBEVAL-CONTRADICTION: lead 1. Depends on 1.
 3. T1-KBEVAL-RETRIEVAL: lead 2. Depends on 1.
 4. T1-KBEVAL-LINKER: lead 3. Depends on 1.
@@ -99,14 +99,14 @@ Cards 2 to 8 each own one probe module, one data directory and one test file, sh
 
 | Card | Priority | Output | depends_on | Parallel window | Freeze point |
 |---|---|---|---|---|---|
-| T1-KBEVAL-HARNESS | MUST | the runner, the record shape, the directory guard, the CI step | - | - | yes |
-| T1-KBEVAL-CONTRADICTION | MUST | precision and recall of contradiction detection per category | T1-KBEVAL-HARNESS | W1 | - |
-| T1-KBEVAL-RETRIEVAL | MUST | recall@5 and nDCG@10 for English, Chinese and cross-language queries | T1-KBEVAL-HARNESS | W1 | - |
-| T1-KBEVAL-LINKER | MUST | precision and recall of auto-linking per category | T1-KBEVAL-HARNESS | W1 | - |
-| T1-KBEVAL-CITATIONS | MUST | counts of out-of-context and nonexistent citations returned | T1-KBEVAL-HARNESS | W1 | - |
-| T1-KBEVAL-TRACE | MUST | lexical containment bands, source-span count, the label sample | T1-KBEVAL-HARNESS | W1 | - |
-| T1-KBEVAL-REBUILD | MUST | second-ingest changes, order differences, the changed-source scan | T1-KBEVAL-HARNESS | W1 | - |
-| T1-KBEVAL-PROVENANCE | MUST | trust change per cited page, refine acceptance, captures share | T1-KBEVAL-HARNESS | W1 | - |
+| T1-KBEVAL-HARNESS-2 | MUST | the runner, the record shape, the directory guard, the CI step | - | - | yes |
+| T1-KBEVAL-CONTRADICTION | MUST | precision and recall of contradiction detection per category | T1-KBEVAL-HARNESS-2 | W1 | - |
+| T1-KBEVAL-RETRIEVAL | MUST | recall@5 and nDCG@10 for English, Chinese and cross-language queries | T1-KBEVAL-HARNESS-2 | W1 | - |
+| T1-KBEVAL-LINKER | MUST | precision and recall of auto-linking per category | T1-KBEVAL-HARNESS-2 | W1 | - |
+| T1-KBEVAL-CITATIONS | MUST | counts of out-of-context and nonexistent citations returned | T1-KBEVAL-HARNESS-2 | W1 | - |
+| T1-KBEVAL-TRACE | MUST | lexical containment bands, source-span count, the label sample | T1-KBEVAL-HARNESS-2 | W1 | - |
+| T1-KBEVAL-REBUILD | MUST | second-ingest changes, order differences, the changed-source scan | T1-KBEVAL-HARNESS-2 | W1 | - |
+| T1-KBEVAL-PROVENANCE | MUST | trust change per cited page, refine acceptance, captures share | T1-KBEVAL-HARNESS-2 | W1 | - |
 | T1-KBEVAL-BASELINE | MUST | the run on the real corpus, the labels and `docs/knowledge-baseline.md` | T1-KBEVAL-CONTRADICTION, T1-KBEVAL-RETRIEVAL, T1-KBEVAL-LINKER, T1-KBEVAL-CITATIONS, T1-KBEVAL-TRACE, T1-KBEVAL-REBUILD, T1-KBEVAL-PROVENANCE | - | - |
 
 ## Risks
@@ -115,7 +115,7 @@ Cards 2 to 8 each own one probe module, one data directory and one test file, sh
 - The vector arm of `retrieval` needs the embedding model on disk. CI has none, so that arm is `unmeasured` there and is measured only in the baseline run.
 - Lexical containment measures copied wording. A faithful paraphrase scores low and a copied sentence in the wrong context scores high; the labels on the sample are the only measure of support.
 - Nine cards against the 12 hour arc: the harness, then seven probes two at a time, then the baseline. The baseline card stops with the label sheet prepared if the owner has not ruled on label disagreements by then.
-- `test` is the one required check, and T1-KBEVAL-HARNESS adds the `bench/knowledge/tests` step to that job, so from the harness on a failing bench test blocks the merge of every later card.
+- `test` is the one required check, and T1-KBEVAL-HARNESS-2 adds the `bench/knowledge/tests` step to that job, so from the harness on a failing bench test blocks the merge of every later card.
 - `wiki/` and `raw/` exist only on the main checkout. Probe cards test against `demo/` and temporary fixtures; the corpus numbers come only from the baseline card.
 
 ## Proof
