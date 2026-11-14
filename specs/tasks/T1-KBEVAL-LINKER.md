@@ -99,4 +99,47 @@ Input forms and failure paths the loader handles:
 Design notes for the reviewer:
 - `common-word` bodies use the word with the same capitalisation as the title (at the start of a sentence), so that category measures meaning alone; `case-variant` bodies hold the title only in another case (the test checks no exact-case occurrence).
 - `already-linked` and `inside-code` bodies also hold the title outside the link or inside code, so the matcher has text to act on and the control is not passed trivially.
-- Links are counted with `kb.utils.markdown.extract_wikilinks` over the whole body page.
+- Attempt 1 counted links with `kb.utils.markdown.extract_wikilinks` over the whole body page. Attempt 2 replaced this; see below.
+
+### Attempt 2 (R3 decision 1, finding code-injection-blind-spot)
+Finding: `extract_wikilinks` strips inline code and backtick fences before matching, so a link `inject_wikilinks` wrongly wrote inside code was never counted and the inside-code control could not see the defect it exists to catch.
+
+RED `2cf22d4:bench/knowledge/tests/test_linker.py`, run against the unchanged `179c5c7` probe: 3 failed, 43 passed. Every failure is an assertion:
+- `test_link_inserted_inside_code_counts_as_a_false_link[inline]` and `[backtick-fence]`: `{'linked_inside-code': 0} != 1`, `{'fp': 0} != 1`, `{'tn': 1} != 0`.
+- `test_second_link_inserted_inside_code_beside_an_existing_link_counts`: `assert (0, 0) == (1, 1)`.
+- `test_link_inserted_inside_code_counts_as_a_false_link[tilde-fence]` passed already, because `extract_wikilinks` does not strip tilde fences. It stays as a regression test.
+
+GREEN `2b220ad`: 46 passed.
+
+Sites changed:
+- `probes/linker.py` `links_to`: counts `[[<target_id>]]` and `[[<target_id>|<display>]]` with a regex over the raw page text, without stripping code. The regex is case-insensitive and accepts surrounding spaces and a `.md` suffix, which are the forms kb resolves. `inject_wikilinks` writes `[[<target>|<title>]]` with `]` in the title escaped by `wikilink_display_escape`, so `[^\]]*` covers every display it can write. Every category goes through this one function.
+- `tests/test_linker.py`: the stub gained a `replace` option that puts a link at a chosen place in the body page. Four tests were added; no existing test changed.
+
+Other categories checked for the same blind spot:
+- already-linked, existing link counted as new: not possible. The count is taken before and after the call, so an existing link adds to both sides. `test_inject_arm_reports_hand_computed_...` (row r4, edited without a new link, counts as `tn`) covers it.
+- already-linked, second link inserted inside code beside the existing one: missed by attempt 1, now counted. Test: `test_second_link_inserted_inside_code_beside_an_existing_link_counts`.
+- proper-mention, cjk-in-cjk, common-word, case-variant: a link inside code in these rows was also uncounted under attempt 1. They now use the same raw count, so a wrong link inside code is a link in every category.
+- Remaining limit, not fixed: a call that removed one link to the target and added another would net to zero. `inject_wikilinks` only inserts and skips pages that already link, so this cannot happen with the current code.
+
+Real-function check, not committed: running `link_row` from the probe on every inside-code and already-linked row of the committed set, with `KB_PROJECT_ROOT` set to a temporary directory, left all 24 body pages byte-identical to what the probe wrote. So `inject_wikilinks` writes nothing into those pages, and the 0 below is a measurement, not a counting gap. No row was edited.
+
+Numbers before (attempt 1, `179c5c7`) and after (attempt 2), real `inject_wikilinks`, 12 rows per category:
+
+| Category | Linked before | Linked after |
+|---|---|---|
+| proper-mention | 12 | 12 |
+| cjk-in-cjk | 0 | 0 |
+| common-word | 12 | 12 |
+| case-variant | 12 | 12 |
+| inside-code | 0 | 0 |
+| already-linked | 0 | 0 |
+| tp / fp / fn / tn | 12 / 24 / 12 / 24 | 12 / 24 / 12 / 24 |
+| precision / recall | 0.3333333333333333 / 0.5 | 0.3333333333333333 / 0.5 |
+
+Mutation check, not committed: restoring the attempt-1 `links_to` (count with `extract_wikilinks`) makes the inline, backtick-fence and already-linked tests above fail, which is the RED run against `179c5c7`.
+
+Input forms added to the list above:
+- link inserted inside inline code: `test_link_inserted_inside_code_counts_as_a_false_link[inline]`
+- link inserted inside a backtick fence: `test_link_inserted_inside_code_counts_as_a_false_link[backtick-fence]`
+- link inserted inside a tilde fence: `test_link_inserted_inside_code_counts_as_a_false_link[tilde-fence]`
+- second link inside code beside an existing link: `test_second_link_inserted_inside_code_beside_an_existing_link_counts`
