@@ -1,7 +1,7 @@
 ---
 id: T1-KBEVAL-TRACE
 title: "The `trace` probe reports, for a wiki and its raw directory, the lexical containment of body sentences in their listed sources, the extraction templates that define a claim quote or offsets, and a fixed sample of sentences for labelling"
-status: todo
+status: merged
 branch: T1-KBEVAL-TRACE
 worktree: D:\wt\llm-wiki-flywheel\T1-KBEVAL-TRACE
 plan_ref: plans/kb-baseline.md#order-of-work
