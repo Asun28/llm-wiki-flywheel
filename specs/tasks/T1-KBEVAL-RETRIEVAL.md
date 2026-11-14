@@ -32,7 +32,7 @@ acceptance:
   - 6. Same file, the committed set: the `tokenize` arm holds one `tokens_<id>` per Chinese row, and `zh_queries`, `zh_zero_token`, `zh_single_token` and `zh_mean_tokens` equal the values recomputed from them. [R8] [dod arm 2]
   - 7. Same file, the committed set run through the runner with the real `search_pages`: exit 0, `bm25` `measured` with `cases` equal to the query count, `hybrid` either `measured` or `unmeasured` with a reason, `invariants` equal to `["I8"]`. [R4] [R9] [dod arm 2]
   - 8. Each row's `why` names the page text that makes the page relevant, and no distractor page answers a query (reviewer-verified against the diff). [R1] [R2]
-depends_on: [T1-KBEVAL-HARNESS]
+depends_on: [T1-KBEVAL-HARNESS-2]
 parallelizable_with: [T1-KBEVAL-CONTRADICTION, T1-KBEVAL-LINKER, T1-KBEVAL-CITATIONS, T1-KBEVAL-TRACE, T1-KBEVAL-REBUILD, T1-KBEVAL-PROVENANCE]
 budget: 700
 forbid: [any change under src/kb/ templates/ or tests/, a download of the embedding model inside the probe or its tests, a model call, a threshold or pass/fail judgement on a metric, changing a query or a page because of what `search_pages` returned for it]

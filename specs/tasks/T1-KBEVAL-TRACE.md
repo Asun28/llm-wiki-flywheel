@@ -31,7 +31,7 @@ acceptance:
   - 6. Same file, a temporary templates directory given to the probe: a template with a `quote` field is counted in `templates_with_claim_span` and one with only `key_claims` is not. [R7] [dod arm 2]
   - 7. Same file, a wiki of 32 pages with three banded sentences each: the sample holds 60 rows from the 30 pages with the smallest sha256, the two rows of each page are the ones with the smallest sha256 of `<page id>:<index>`, `start` and `end` cut the sentence out of the page file, and a second run writes a byte-equal file; a wiki of 3 such pages gives 6 rows with `sample_pages` 3. [R8] [dod arm 2]
   - 8. Same file: an empty wiki gives `unmeasured` with `no pages` and no sample file; `demo/wiki` with `demo/raw` run through the runner exits 0 with `invariants` equal to `["I1"]`. [R9] [R10] [dod arm 2]
-depends_on: [T1-KBEVAL-HARNESS]
+depends_on: [T1-KBEVAL-HARNESS-2]
 parallelizable_with: [T1-KBEVAL-CONTRADICTION, T1-KBEVAL-RETRIEVAL, T1-KBEVAL-LINKER, T1-KBEVAL-CITATIONS, T1-KBEVAL-REBUILD, T1-KBEVAL-PROVENANCE]
 budget: 500
 forbid: [any change under src/kb/ templates/ or tests/, a write under `ctx.wiki` or `ctx.raw`, writing sentence text anywhere but `ctx.out`, a model call or network request, a new dependency such as rapidfuzz, a threshold or pass/fail judgement on a band]
