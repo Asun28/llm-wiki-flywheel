@@ -171,3 +171,84 @@ before: band_high=1 band_mid=5 band_low=67 sentences=73 sentences_short=19 sampl
 after:  band_high=1 band_mid=4 band_low=66 sentences=71 sentences_short=3  sample_pages=10 sample_sentences=20
 ```
 Refs and templates did not change (refs_text=15, refs_total=15, others 0; templates_total=11, templates_with_claim_span=1). The cause: list markers (`1.`, `2.`, ...) used to be cut as short sentences and to split items. They are now container markers. The run exits 0 with no `guarded directory changed:` line.
+
+## Attempt 3 evidence
+
+R3 decision 2 blocked `3d88d14` with 4 findings. RED `cae6d84`, GREEN `5be80c9`. For this attempt, R3's literal text decides every rule it states. CommonMark is used only to recognise the blocks R3 excludes. Where the attempt-2 section above says container markers are trimmed or that a setext heading ends the trail, this section replaces it.
+
+### Commits
+- `cae6d84` RED: corrected and new block rows, run against `3d88d14`. 17 failed, all on `AssertionError`; 76 passed.
+- `5be80c9` GREEN: 94 passed. It adds the row `fence-in-a-second-ordered-item` after mutation N18 survived the RED set. That row also fails on `3d88d14`.
+
+### Findings
+| Finding | Fix | Tests |
+|---|---|---|
+| 1 table-row-filter | A GFM table needs an unescaped `\|` in both the header and the delimiter row, plus equal cell counts | `no-pipe-in-either-row-is-prose` (the reviewer's input), `header-without-pipe-is-prose`, `delimiter-without-pipe-is-prose` |
+| 2 fence-state-parsing | One column cursor `(pos, col, rem)` for every indent measurement (container continuation, list content, fence open and close, ATX, setext, table block starts, indented code). A tab advances to the next multiple of 4. The columns of a tab that `>` plus its optional space, or a list marker, consumes only in part count as indentation. | `tab-after-blockquote-marker-is-indent` (the reviewer's input), `tab-after-list-marker-is-indent`, `tab-indented-fence-in-list-item` (control) |
+| 3 sentence-rule-overreach | `page_sentences` cuts at every R3 sentence end and strips white space, nothing else. Container tracking only decides excluded lines. | the corrected rows below |
+| 4 evidence-trail-boundary-overreach | The trail starts only at a line equal to `## Evidence Trail` and ends only at the next level-2 ATX heading. A `## ` line inside a fenced block is not a heading (R3 says "heading"), so it ends nothing. | `trail-starts-only-at-the-exact-line`, `trail-ends-at-a-level-two-atx-heading-with-closing-hashes`, `trail-heading-inside-fence-does-not-end-it`, `trail-not-ended-by-setext-or-level-three` (setext and `### ` do not end the trail; the final sentence is excluded), `trail-line-inside-a-fence-starts-the-trail` |
+
+### Corrected tests (each decided by R3's text)
+- `ordered-list-markers`: was `["First item text.", "Second item text."]`, now `["1.", "First item text.", "2.", "Second item text."]`. R3: a `.` followed by white space is a sentence end, so `1.` is a piece; R4 counts it short.
+- `list-marker-period-inside-a-sentence`: now `["1.", "First item\n2.", "Second item text."]`. Same clause.
+- `quoted-sentence-over-two-lines`: now `["> This quoted sentence\n> spans two lines."]`. R3 strips white space only, so the `>` stays.
+- `table-in-list-item`, `fence-in-list-item`: the item sentences now keep `- `. Same clause.
+- `setext-in-blockquote`, `thematic-break-after-blockquote`, `atx-in-blockquote-and-list-item`: the quoted sentences now keep `> `. Same clause.
+- `evidence-trail-with-closing-hashes`: replaced by `trail-starts-only-at-the-exact-line`. R3: the trail starts at "the line `## Evidence Trail`", so `## Evidence Trail ##` starts nothing and the entry under it is kept. The closing-hash end moved to `trail-ends-at-a-level-two-atx-heading-with-closing-hashes`.
+- `evidence-trail-ended-by-setext-level-two`: replaced by `trail-not-ended-by-setext-or-level-three`. R3: the trail ends at "the next `## ` heading".
+- `evidence-trail-heading-inside-fence-does-not-end-it`: renamed `trail-heading-inside-fence-does-not-end-it`; the expectation is unchanged.
+- `setext-wins-over-one-cell-table`: renamed `dash-underline-under-a-pipe-line-is-setext`. A `---` line has no pipe, so under finding 1 it can no longer be a table delimiter and there is no precedence left to test. The expectation is unchanged.
+
+### Rule-to-clause list (every rule the probe applies to page text)
+- Page files: R1 says every `*.md` file in a subdirectory of `ctx.wiki`, id `<subdirectory>/<stem>`; the code reads files whose path relative to `ctx.wiki` has a directory part, id = that path without `.md`.
+- Decoding: R1 says a file whose frontmatter does not parse is `pages_unparsed`; the code decodes the bytes as strict UTF-8 and counts a failure there.
+- Frontmatter: R1 and R3 say "frontmatter"; the code reads the YAML block between a first line `---` and the next `---` line (the kb page convention). It counts as unparsed an unclosed block, any load error (`YAMLError`, `ValueError`, `TypeError`) and a non-mapping. A page whose first line is not `---` has no frontmatter.
+- Refs: R1 says the `source` field is the list of refs; the code reads a list as the refs, any other non-empty value as one ref, and a missing, null, empty-string or empty-list field as no ref.
+- Body: R3 says the text after the frontmatter; the code starts at the offset after the closing `---` line.
+- Lines: CommonMark recognition of an R3 block: a line ends at `\n`, `\r\n` or `\r`. Lines are what the block rules classify.
+- Fenced code blocks: CommonMark recognition of an R3 block: fenced code. Covers opening and closing fences, the info-string rule, closing length and character, and end at the container's end.
+- ATX and setext headings: CommonMark recognition of an R3 block: heading lines.
+- GFM tables: CommonMark (GFM) recognition of an R3 block: table rows, meaning the header, delimiter and rows, with a pipe in both header and delimiter and equal cell counts.
+- Blockquotes, list items, lazy continuation, paragraph-interruption rules, indented code (4+ columns is not a fence or heading), thematic breaks (a `---` after a blank line is not a setext underline), tab columns: CommonMark recognition of the three R3 blocks inside and next to containers. These lines are classified, not removed.
+- Evidence Trail start: R3 says "from the line `## Evidence Trail`"; the code starts at a line equal to `## Evidence Trail`. That includes such a line inside a fenced block: R3 names the line, not a heading.
+- Evidence Trail end: R3 says "to the next `## ` heading or the end"; the code ends at the next line recognised as a level-2 ATX heading, which a line inside a fenced block is not.
+- Removed text ends a piece: R8 says `start` and `end` cut the sentence out of the page file; the code cuts pieces only inside runs of consecutive kept lines, so no sentence spans removed text.
+- Sentence ends: R3 says `.`, `!`, `?` followed by white space or the end of a line, and `。！？` anywhere; the code cuts after each match of `[.!?](?=\s|\Z)|[。！？]` in a run (a run's end is a line end).
+- Strip and numbering: R3 says pieces are stripped and numbered from 0 in order; the code strips white space, numbers every non-empty piece from 0, and keeps container markers as text. A piece that is only white space holds no sentence and gets no number.
+- Short: R4 says under 20 characters, or under 8 with no ASCII letter; the code does exactly that.
+- Containment: R5 says the share of lower-cased `\w+` word 5-grams, or of character 8-grams with no ASCII letter, found in the page's text sources; the code does exactly that, each source searched on its own. A sentence with no n-gram is counted short.
+
+I found no other rule on page text. Removed in this attempt: container-marker trimming, the list-marker exception to sentence ends, setext and top-level-only trail bounds, and the trail start by heading text.
+
+### Construct matrix changes from attempt 2
+- **Table:** a pipe is now required in the header and in the delimiter row (`no-pipe-in-either-row-is-prose`, `header-without-pipe-is-prose`, `delimiter-without-pipe-is-prose`).
+- **Tabs:** column rule with partial tabs (`tab-after-blockquote-marker-is-indent`, `tab-after-list-marker-is-indent`, `tab-indented-fence-in-list-item`).
+- **List items:** a fence in a second ordered item is a fence, not lazy paragraph text (`fence-in-a-second-ordered-item`).
+- **Evidence Trail:** literal bounds (the five `trail-` rows).
+- **Container markers:** kept as text.
+- **Unchanged from attempt 2:** fence, ATX and setext rows. Not recognised, kept as prose because R3 does not exclude them: HTML blocks, link reference definitions, indented code and thematic breaks. Not implemented: the rule that a list item may begin with at most one blank line.
+
+### Mutation checks (one at a time, not committed)
+| Mutation | Caught by |
+|---|---|
+| P1 table needs no pipe | the three pipe rows |
+| P2 pipe required only in the header | `delimiter-without-pipe-is-prose` |
+| P3 pipe required only in the delimiter | `header-without-pipe-is-prose` |
+| P4 a partly consumed tab consumed whole | both tab-after-marker rows |
+| P5 a tab's remaining columns not counted as indent | both tab-after-marker rows |
+| P6 trail starts at any heading with the text | `trail-starts-only-at-the-exact-line` |
+| P7 trail ended by any ATX level | `trail-not-ended-by-setext-or-level-three` |
+| P8 trail never ends | 5 tests |
+| P9 trail also ended by a setext heading | `trail-not-ended-by-setext-or-level-three` |
+| P10 `>` and `-` stripped from sentence starts | 11 rows |
+| P11 a list-marker period does not end a piece | `ordered-list-markers`, `list-marker-period-inside-a-sentence` |
+| P12 trail never entered | 7 tests |
+| N1, N2, N3, N5, N6, N7, N8, N9, N21 (attempt-2 mutations still applicable) | each caught (1 to 9 tests) |
+| N18 paragraph-interruption rule applied when the paragraph's container did not match | `fence-in-a-second-ordered-item` (survived before that row was added) |
+
+### Demo run, before (`3d88d14`) and after (`5be80c9`)
+```
+before: band_high=1 band_mid=4 band_low=66 sentences=71 sentences_short=3  sample_pages=10 sample_sentences=20
+after:  band_high=1 band_mid=5 band_low=67 sentences=73 sentences_short=19 sample_pages=10 sample_sentences=20
+```
+These equal the attempt-1 numbers. Refs and templates did not change. `sentences_short` rose by 16 because list markers (`1.`, `2.` and so on) are R3 sentence pieces again. The run exits 0 with no `guarded directory changed:` line.
