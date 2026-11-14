@@ -27,7 +27,7 @@ acceptance:
   - 3. Same file, `query_wiki` replaced by a stub with a fixed `context_pages` that returns as `citations` a chosen subset of the cited paths: the scripted answer the stub receives through the replaced model function holds the six citations of R4 with the classes of R4, and `injected_<class>`, `returned_<class>` and `citation_keys_uniform` equal hand-computed values. [R3] [R4] [R6] [dod arm 2]
   - 4. Same file, one test per cause of R5: `ValueError` whose message holds the question id. [R5] [dod arm 2]
   - 5. Same file, the committed set run through the runner with the real `query_wiki`: exit 0, the arm `measured`, `cases` equal to the question count, `injected_in-context` equal to `cases`, `injected_out-of-context` and `injected_nonexistent` equal to twice `cases`, `returned_traversal` equal to 0, `invariants` equal to `["I1"]`, and the replaced model function was called and no other model function was. [R3] [R6] [R7] [dod arm 2]
-depends_on: [T1-KBEVAL-HARNESS-2]
+depends_on: [T1-KBEVAL-HARNESS-3]
 parallelizable_with: [T1-KBEVAL-CONTRADICTION, T1-KBEVAL-RETRIEVAL, T1-KBEVAL-LINKER, T1-KBEVAL-TRACE, T1-KBEVAL-REBUILD, T1-KBEVAL-PROVENANCE]
 budget: 450
 forbid: [any change under src/kb/ templates/ or tests/, a model call or network request, a threshold or pass/fail judgement on a count]
