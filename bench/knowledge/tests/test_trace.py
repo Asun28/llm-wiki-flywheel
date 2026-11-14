@@ -430,13 +430,15 @@ def test_offsets_hold_for_a_page_with_crlf_line_ends(probe):
     assert all(text[s["start"] : s["end"]] == s["text"] for s in found)
 
 
-# -- acceptance 3, attempt 2: R3 constructs follow CommonMark and GFM block structure --
-# Each row is (id, body, expected sentences). A sentence never starts or ends on a
-# container marker (`>`, a list marker); a marker inside a multi-line sentence stays,
-# because the sentence is one contiguous span of the page file.
+# -- acceptance 3: R3 blocks recognised by CommonMark and GFM block structure -------
+# Each row is (id, body, expected sentences). CommonMark decides only which lines are
+# fenced code, heading lines or table rows. Every other rule is R3's literal text:
+# split at `.`, `!`, `?` before white space or a line end and at `。！？`, then strip
+# white space. A kept line keeps its container markers (`>`, `- `, `1. `) as text.
 
 BLOCK_CASES = [
-    # GFM tables: header, delimiter and rows are removed; outer pipes are optional.
+    # GFM tables: header, delimiter and rows are removed; outer pipes are optional, but
+    # the header and the delimiter row each need an unescaped `|`.
     (
         "table-no-outer-pipes",
         "Intro sentence here.\n\na | b\n--- | ---\none. | two.\n\nAfter the table.",
@@ -450,7 +452,7 @@ BLOCK_CASES = [
     (
         "table-in-list-item",
         "- Item text here.\n\n  | a | b |\n  |:--|--:|\n  | x. | y. |\n\nAfter.",
-        ["Item text here.", "After."],
+        ["- Item text here.", "After."],
     ),
     (
         "table-row-without-pipes-ends-at-heading",
@@ -472,6 +474,25 @@ BLOCK_CASES = [
         "a | b\n--- | --- | ---\nText here.",
         ["a | b\n--- | --- | ---\nText here."],
     ),
+    (
+        "no-pipe-in-either-row-is-prose",
+        "This ordinary paragraph should remain here.\n:---\n"
+        "Another ordinary sentence should remain here.",
+        [
+            "This ordinary paragraph should remain here.",
+            ":---\nAnother ordinary sentence should remain here.",
+        ],
+    ),
+    (
+        "header-without-pipe-is-prose",
+        "Plain header line here\n|:---|\nRow text here.",
+        ["Plain header line here\n|:---|\nRow text here."],
+    ),
+    (
+        "delimiter-without-pipe-is-prose",
+        "| Header cell here\n:---\nRow text here.",
+        ["| Header cell here\n:---\nRow text here."],
+    ),
     # Setext headings: text and underline are removed.
     (
         "setext-equals",
@@ -491,14 +512,15 @@ BLOCK_CASES = [
     (
         "setext-in-blockquote",
         "> Quoted title\n> ---\n> Quoted body here.",
-        ["Quoted body here."],
+        ["> Quoted body here."],
     ),
     (
-        "setext-wins-over-one-cell-table",
+        "dash-underline-under-a-pipe-line-is-setext",
         "| a |\n---\nBody here.",
         ["Body here."],
     ),
-    # A --- line after a blank line, or after a lazy line, is a thematic break: kept text.
+    # A --- line after a blank line, or one that ends a blockquote, is a thematic break:
+    # R3 does not exclude it, so it is kept text.
     (
         "thematic-break-after-blank-line",
         "Para one ends here.\n\n---\n\nAfter the break.",
@@ -507,7 +529,7 @@ BLOCK_CASES = [
     (
         "thematic-break-after-blockquote",
         "> Quoted line here.\n---\nAfter rule.",
-        ["Quoted line here.", "---\nAfter rule."],
+        ["> Quoted line here.", "---\nAfter rule."],
     ),
     # Fences.
     (
@@ -523,7 +545,7 @@ BLOCK_CASES = [
     (
         "fence-in-list-item",
         "- Item text here.\n\n  ```\n  code line. More code.\n  ```\n- Next item here.",
-        ["Item text here.", "Next item here."],
+        ["- Item text here.", "- Next item here."],
     ),
     (
         "unclosed-fence-ends-with-its-blockquote",
@@ -550,50 +572,79 @@ BLOCK_CASES = [
         "Para here.\n\n    ```\n    indented code line.\n\nAfter.",
         ["Para here.", "```\n    indented code line.", "After."],
     ),
+    # Tabs advance to the next multiple of 4 columns; the part of a tab a container
+    # marker does not consume is indentation (CommonMark 0.31.2, Tabs).
+    (
+        "tab-after-blockquote-marker-is-indent",
+        ">\t  ```\n>   This ordinary sentence has enough words to count.\n>   ```",
+        [">\t  ```\n>   This ordinary sentence has enough words to count."],
+    ),
+    (
+        "tab-after-list-marker-is-indent",
+        "-\t  ```\n  Item sentence has enough words to count.\n  ```",
+        ["-\t  ```\n  Item sentence has enough words to count."],
+    ),
+    (
+        "tab-indented-fence-in-list-item",
+        "-\tItem text here.\n\n\t```\n\tcode line.\n\t```\nAfter.",
+        ["-\tItem text here.", "After."],
+    ),
     # ATX headings inside containers; four spaces of indent is not a heading.
     (
         "atx-in-blockquote-and-list-item",
         "> # Quoted heading\n> Quoted body here.\n\n- ## Item heading\n  Item body here.",
-        ["Quoted body here.", "Item body here."],
+        ["> Quoted body here.", "Item body here."],
     ),
     (
         "atx-indented-four-is-text",
         "Para one here.\n    # not a heading line.",
         ["Para one here.", "# not a heading line."],
     ),
-    # Evidence Trail: an ATX level-2 heading with optional closing hashes, ended by the
-    # next level-2 heading outside code.
+    # Evidence Trail: from the line `## Evidence Trail` exactly to the next `## ` ATX
+    # heading. A `## ` line inside a fenced block is not a heading, so it ends nothing.
     (
-        "evidence-trail-with-closing-hashes",
-        "Body one here.\n## Evidence Trail ##\n- entry one.\n## Next ##\nBody two here.",
+        "trail-starts-only-at-the-exact-line",
+        "Body one here.\n## Evidence Trail ##\n- entry one.\n## Next\nBody two here.",
+        ["Body one here.", "- entry one.", "Body two here."],
+    ),
+    (
+        "trail-ends-at-a-level-two-atx-heading-with-closing-hashes",
+        "Body one here.\n## Evidence Trail\n- entry one.\n## Next ##\nBody two here.",
         ["Body one here.", "Body two here."],
     ),
     (
-        "evidence-trail-heading-inside-fence-does-not-end-it",
+        "trail-heading-inside-fence-does-not-end-it",
         "Body one here.\n## Evidence Trail\n```\n## not a heading\n```\n- entry.\n## Next\n"
         "Body two here.",
         ["Body one here.", "Body two here."],
     ),
     (
-        "evidence-trail-ended-by-setext-level-two",
-        "Body one here.\n## Evidence Trail\n- entry one.\n\nNext section\n---\nBody two here.",
+        "trail-not-ended-by-setext-or-level-three",
+        "Body one here.\n## Evidence Trail\n- entry one.\n\nNext section\n---\n"
+        "Final sentence is excluded.\n### Sub\nAlso excluded here.",
+        ["Body one here."],
+    ),
+    (
+        "trail-line-inside-a-fence-starts-the-trail",
+        "Body one here.\n```\n## Evidence Trail\n```\nAfter the fence.\n## Next\nBody two here.",
         ["Body one here.", "Body two here."],
     ),
-    # Container markers are not sentence text, and a list marker's period ends nothing.
+    # R3 sentence rule, literally: a list marker's period before a space ends a piece,
+    # and container markers stay in the kept text.
     (
         "ordered-list-markers",
         "1. First item text.\n2. Second item text.",
-        ["First item text.", "Second item text."],
+        ["1.", "First item text.", "2.", "Second item text."],
     ),
     (
         "list-marker-period-inside-a-sentence",
         "1. First item\n2. Second item text.",
-        ["First item\n2. Second item text."],
+        ["1.", "First item\n2.", "Second item text."],
     ),
     (
         "quoted-sentence-over-two-lines",
         "> This quoted sentence\n> spans two lines.",
-        ["This quoted sentence\n> spans two lines."],
+        ["> This quoted sentence\n> spans two lines."],
     ),
 ]
 
