@@ -11,3 +11,4 @@ Format: `- YYYY-MM-DD <card or incident>: NEVER|ALWAYS|NOTE <rule> (source: <ver
 
 ## Lessons
 - (none yet)
+- 2026-11-14 T1-KBEVAL-HARNESS-3: ALWAYS make a process-wide monkeypatch of an os function pass every argument form it does not test (no argument, an int file descriptor) to the real function: POSIX shutil.rmtree calls os.scandir(fd), so a path-only fake passes on Windows and fails on Linux CI (source: PR #147, CI run 43568859972)

@@ -1,7 +1,7 @@
 ---
 id: T1-KBEVAL-HARNESS-3
 title: "`python bench/knowledge/run.py` runs every probe under a probes directory, writes one record per probe and exits 1 when a guarded directory changes"
-status: todo
+status: merged
 branch: T1-KBEVAL-HARNESS-3
 worktree: D:\wt\llm-wiki-flywheel\T1-KBEVAL-HARNESS-3
 plan_ref: plans/kb-baseline.md#order-of-work
