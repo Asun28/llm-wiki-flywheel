@@ -1,0 +1,57 @@
+[
+  {
+    "id": "I1",
+    "statement": "Traceable: every factual sentence of a page maps to a claim with a source path, offsets and a verbatim quote found at those offsets.",
+    "probes": ["trace", "citations"]
+  },
+  {
+    "id": "I2",
+    "statement": "Supported: a claim is entailed by its quote, judged by a verifier calibrated on human labels. Measured by the labels on the trace sample.",
+    "probes": ["trace"]
+  },
+  {
+    "id": "I3",
+    "statement": "Deterministic and idempotent: equal inputs rebuild to equal bytes, and a second ingest of a source changes nothing.",
+    "probes": ["rebuild"]
+  },
+  {
+    "id": "I4",
+    "statement": "Order-independent: one set of sources gives one set of claims in any ingest order.",
+    "probes": ["rebuild"]
+  },
+  {
+    "id": "I5",
+    "statement": "Retraction cascade: removing a source changes only claims that depend on it alone. No probe in Phase 0.",
+    "probes": []
+  },
+  {
+    "id": "I6",
+    "statement": "Independent corroboration: model-written text is never the source of a confirmed belief.",
+    "probes": ["provenance"]
+  },
+  {
+    "id": "I7",
+    "statement": "Crash-consistent: a kill at any write point leaves the state before or after the ingest. No probe in Phase 0.",
+    "probes": []
+  },
+  {
+    "id": "I8",
+    "statement": "Cross-language: a Chinese and an English query for one concept reach the same pages.",
+    "probes": ["retrieval"]
+  },
+  {
+    "id": "I9",
+    "statement": "No drift: repeated refine or re-ingest leaves the claim set unchanged. Measured by the refine arm of the provenance probe only.",
+    "probes": ["provenance"]
+  },
+  {
+    "id": "I10",
+    "statement": "Conflict detected: two sources that state different values for one fact are flagged.",
+    "probes": ["contradiction"]
+  },
+  {
+    "id": "I11",
+    "statement": "Link correct: an inserted link points at the page the text means.",
+    "probes": ["linker"]
+  }
+]
