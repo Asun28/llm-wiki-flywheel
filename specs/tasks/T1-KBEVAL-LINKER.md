@@ -46,3 +46,100 @@ ruff check bench/knowledge && python -m pytest bench/knowledge/tests/test_linker
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+Attempt 1.
+
+RED/GREEN pair:
+- RED `f0daa79:bench/knowledge/tests/test_linker.py`. The commit holds the case set, the tests and a stub probe that keeps `run(ctx)` and returns `invariants` `[]` and the arm `inject` `measured` with `cases` 0 and empty `metrics`; it reads no case set and calls no `kb` function. Result: 39 failed, 3 passed. Every failure is an assertion: 32 `DID NOT RAISE ValueError` (acceptance 2) and 7 `AssertionError` (`assert 0 == 72` for the committed set through the probe, the two four-row metric dicts, the zero-ratio dict, the call list `[] == [...]`, `assert 0 == 4` calls in the page-layout test, `[] == ['I11']` in the runner test). The 3 passes read `cases.jsonl` directly and do not use the probe.
+- GREEN `f18aefa`: the real probe. Result: 42 passed.
+
+The case set (72 rows, 12 per category) was written and labelled from meaning before the real probe ran on it; no row was edited after the run.
+
+| Acceptance item | Proving test or command | Result |
+|---|---|---|
+| 1. committed set loads under R1 and R2, >= 10 rows per category, each `cjk-in-cjk` title has a Chinese character directly before and after it [R1] | `test_committed_case_set_has_seven_fields_unique_ids_and_ten_rows_per_category`, `test_every_cjk_title_is_chinese_with_a_chinese_character_before_and_after_each_use` (checks every occurrence, not any), `test_english_rows_hold_the_title_in_the_form_their_category_names`, `test_committed_case_set_loads_through_the_probe_without_error` | pass |
+| 2. one `ValueError` per cause of R2, naming file and line [R2] | `test_line_that_is_not_a_json_object_...`, `test_row_missing_a_field_...` (each of the 7 fields), `test_repeated_id_...`, `test_unknown_category_...`, `test_should_link_that_is_not_the_categorys_value_...` (each of the 6 categories) | pass |
+| 3. four-row fixture with a stub that edits the page for chosen rows; hand-computed metrics; a row that held one link and holds one after is not linked [R3] [R4] | `test_inject_arm_reports_hand_computed_counts_ratios_and_per_category_rows` (row r4 is edited without a new link and counts as `tn`), `test_inject_arm_keeps_false_positives_and_misses_apart`, `test_fixture_with_no_positive_row_and_no_link_reports_zero_ratios`, `test_inject_is_called_once_per_row_with_title_target_and_wiki_dir`, `test_each_call_sees_a_fresh_wiki_with_the_target_page_and_the_body_page` | pass |
+| 4. committed set through the runner with the real function [R3] [R4] [R5] | `test_runner_measures_the_inject_arm_on_the_committed_set`; `python bench/knowledge/run.py --probe linker` | pass; exit 0, no `guarded directory changed:` line |
+| 5. each `why` names what the body means; `common-word` and `case-variant` bodies use the other meaning [R1] | reviewer reads `bench/knowledge/data/linker/cases.jsonl` | for review |
+
+Measured on the committed set (`run.py --probe linker`): tp 12, fp 24, fn 12, tn 24, precision 0.3333333333333333, recall 0.5. Linked per category (of 12 rows each): proper-mention 12, cjk-in-cjk 0, common-word 12, case-variant 12, inside-code 0, already-linked 0.
+
+Call cardinality: `test_inject_is_called_once_per_row_with_title_target_and_wiki_dir` records the stub's complete call list (positional and keyword arguments) and requires exactly one call per row, in row order, with three positional arguments `(title, target_id, wiki_dir)` and no keywords. `test_each_call_sees_a_fresh_wiki_with_the_target_page_and_the_body_page` checks, at each call, that `wiki_dir` is a distinct directory under `ctx.tmp` holding exactly two pages: `<target_id>.md` with frontmatter `title` equal to the row title, and one page in a `WIKI_SUBDIRS` directory whose body equals the row body.
+
+Expected values come from hand-written literals (acceptance 3) or from counting rows in `cases.jsonl` (acceptance 1 and 4), never from the probe's output.
+
+Mutation checks (each applied alone to `probes/linker.py`, tests run, file restored; none committed):
+
+| Mutation | Result | Tests that caught it |
+|---|---|---|
+| M1 every row linked (constant result) | 3 failed | both four-row metric tests, zero-ratio test |
+| M2 linked when the page text changed | 1 failed | `test_inject_arm_reports_hand_computed_...` (row r4) |
+| M3 `inject_wikilinks` called twice per row | 2 failed | call-list test, page-layout test |
+| M4 `should_link` check removed | 9 failed | the 6 category-value and 3 non-boolean rejection tests |
+| M5 `fp` and `fn` swapped | 2 failed | `test_inject_arm_keeps_false_positives_and_misses_apart`, runner test |
+| M6 one wiki directory for every row | 1 failed | page-layout test |
+| M7 `linked_` counted only for positive rows | 3 failed | both four-row metric tests, runner test |
+
+Input forms and failure paths the loader handles:
+- valid line with the seven fields: `test_committed_case_set_loads_through_the_probe_without_error`
+- line that is JSON but not an object: `test_line_that_is_not_a_json_object_is_rejected_with_file_and_line`
+- line that is not JSON: `test_line_that_is_not_json_at_all_is_rejected_with_file_and_line`
+- blank line (rejected as not JSON): `test_blank_line_is_rejected_with_file_and_line`
+- missing field, each of the seven: `test_row_missing_a_field_is_rejected_with_file_and_line[<field>]`
+- text field that is not a string, each of the six: `test_text_field_that_is_not_a_string_is_rejected_with_file_and_line[<field>]`
+- repeated `id`: `test_repeated_id_is_rejected_with_file_and_line`
+- unknown category: `test_unknown_category_is_rejected_with_file_and_line`
+- `should_link` that is not the category's value, each of the six categories: `test_should_link_that_is_not_the_categorys_value_is_rejected[<category>]`
+- `should_link` that is not a boolean (`"true"`, `1`, `null`): `test_should_link_that_is_not_a_boolean_is_rejected[<value>]`
+- `target_id` that is not `<wiki subdir>/<slug>` (`../outside`, `concepts/../../x`, `Concepts/Alpha`, `alpha`, `notes/alpha`): `test_target_id_that_is_not_a_wiki_page_id_is_rejected[<value>]`. This rule is not in R2; it keeps the page the probe writes under `ctx.tmp`.
+- zero denominator for precision and recall: `test_fixture_with_no_positive_row_and_no_link_reports_zero_ratios`
+
+Design notes for the reviewer:
+- `common-word` bodies use the word with the same capitalisation as the title (at the start of a sentence), so that category measures meaning alone; `case-variant` bodies hold the title only in another case (the test checks no exact-case occurrence).
+- `already-linked` and `inside-code` bodies also hold the title outside the link or inside code, so the matcher has text to act on and the control is not passed trivially.
+- Attempt 1 counted links with `kb.utils.markdown.extract_wikilinks` over the whole body page. Attempt 2 replaced this; see below.
+
+### Attempt 2 (R3 decision 1, finding code-injection-blind-spot)
+Finding: `extract_wikilinks` strips inline code and backtick fences before matching, so a link `inject_wikilinks` wrongly wrote inside code was never counted and the inside-code control could not see the defect it exists to catch.
+
+RED `2cf22d4:bench/knowledge/tests/test_linker.py`, run against the unchanged `179c5c7` probe: 3 failed, 43 passed. Every failure is an assertion:
+- `test_link_inserted_inside_code_counts_as_a_false_link[inline]` and `[backtick-fence]`: `{'linked_inside-code': 0} != 1`, `{'fp': 0} != 1`, `{'tn': 1} != 0`.
+- `test_second_link_inserted_inside_code_beside_an_existing_link_counts`: `assert (0, 0) == (1, 1)`.
+- `test_link_inserted_inside_code_counts_as_a_false_link[tilde-fence]` passed already, because `extract_wikilinks` does not strip tilde fences. It stays as a regression test.
+
+GREEN `2b220ad`: 46 passed.
+
+Sites changed:
+- `probes/linker.py` `links_to`: counts `[[<target_id>]]` and `[[<target_id>|<display>]]` with a regex over the raw page text, without stripping code. The regex is case-insensitive and accepts surrounding spaces and a `.md` suffix, which are the forms kb resolves. `inject_wikilinks` writes `[[<target>|<title>]]` with `]` in the title escaped by `wikilink_display_escape`, so `[^\]]*` covers every display it can write. Every category goes through this one function.
+- `tests/test_linker.py`: the stub gained a `replace` option that puts a link at a chosen place in the body page. Four tests were added; no existing test changed.
+
+Other categories checked for the same blind spot:
+- already-linked, existing link counted as new: not possible. The count is taken before and after the call, so an existing link adds to both sides. `test_inject_arm_reports_hand_computed_...` (row r4, edited without a new link, counts as `tn`) covers it.
+- already-linked, second link inserted inside code beside the existing one: missed by attempt 1, now counted. Test: `test_second_link_inserted_inside_code_beside_an_existing_link_counts`.
+- proper-mention, cjk-in-cjk, common-word, case-variant: a link inside code in these rows was also uncounted under attempt 1. They now use the same raw count, so a wrong link inside code is a link in every category.
+- Remaining limit, not fixed: a call that removed one link to the target and added another would net to zero. `inject_wikilinks` only inserts and skips pages that already link, so this cannot happen with the current code.
+
+Real-function check, not committed: running `link_row` from the probe on every inside-code and already-linked row of the committed set, with `KB_PROJECT_ROOT` set to a temporary directory, left all 24 body pages byte-identical to what the probe wrote. So `inject_wikilinks` writes nothing into those pages, and the 0 below is a measurement, not a counting gap. No row was edited.
+
+Numbers before (attempt 1, `179c5c7`) and after (attempt 2), real `inject_wikilinks`, 12 rows per category:
+
+| Category | Linked before | Linked after |
+|---|---|---|
+| proper-mention | 12 | 12 |
+| cjk-in-cjk | 0 | 0 |
+| common-word | 12 | 12 |
+| case-variant | 12 | 12 |
+| inside-code | 0 | 0 |
+| already-linked | 0 | 0 |
+| tp / fp / fn / tn | 12 / 24 / 12 / 24 | 12 / 24 / 12 / 24 |
+| precision / recall | 0.3333333333333333 / 0.5 | 0.3333333333333333 / 0.5 |
+
+Mutation check, not committed: restoring the attempt-1 `links_to` (count with `extract_wikilinks`) makes the inline, backtick-fence and already-linked tests above fail, which is the RED run against `179c5c7`.
+
+Input forms added to the list above:
+- link inserted inside inline code: `test_link_inserted_inside_code_counts_as_a_false_link[inline]`
+- link inserted inside a backtick fence: `test_link_inserted_inside_code_counts_as_a_false_link[backtick-fence]`
+- link inserted inside a tilde fence: `test_link_inserted_inside_code_counts_as_a_false_link[tilde-fence]`
+- second link inside code beside an existing link: `test_second_link_inserted_inside_code_beside_an_existing_link_counts`
