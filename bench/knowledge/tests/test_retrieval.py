@@ -313,6 +313,63 @@ def test_a_line_that_is_not_utf8_raises_with_file_and_line(probe, runner, tmp_pa
         probe.run(make_ctx(runner, tmp_path, data))
 
 
+# Extra target pages for the rules that compare a query with every relevant body.
+# concepts/delta also holds a number run and a punctuation run, so a query made of
+# them would pass a body check and must be stopped by the English word-form check.
+EXTRA_PAGES = [
+    page("concepts/delta", "en", "target", "Delta", "Gamma delta 123 456 ... --- !!"),
+    page("concepts/bing", "zh", "target", "丙", "丙丁。"),
+]
+
+BAD_QUERY_LINES_EXTRA = {
+    "en query whose words are split across relevant bodies": {
+        **SMALL_QUERIES[0],
+        "id": "q-bad",
+        "query": "alpha delta",
+        "relevant": ["concepts/alpha", "concepts/delta"],
+    },
+    "zh query missing from one relevant body": {
+        **SMALL_QUERIES[1],
+        "id": "q-bad",
+        "query": "甲乙",
+        "relevant": ["concepts/jia", "concepts/bing"],
+    },
+    "en query of numbers only": {
+        **SMALL_QUERIES[0],
+        "id": "q-bad",
+        "query": "123 456",
+        "relevant": ["concepts/delta"],
+    },
+    "en query of punctuation only": {
+        **SMALL_QUERIES[0],
+        "id": "q-bad",
+        "query": "... ---",
+        "relevant": ["concepts/delta"],
+    },
+    "en query with a number word": {
+        **SMALL_QUERIES[0],
+        "id": "q-bad",
+        "query": "delta 123",
+        "relevant": ["concepts/delta"],
+    },
+}
+
+
+@pytest.mark.parametrize("cause", sorted(BAD_QUERY_LINES_EXTRA))
+def test_a_query_that_breaks_its_group_rule_raises_with_file_and_line(
+    probe, runner, tmp_path, cause
+):
+    data = small_data(tmp_path, pages=SMALL_PAGES + EXTRA_PAGES)
+    lines = [dumps(q) for q in SMALL_QUERIES] + [dumps(BAD_QUERY_LINES_EXTRA[cause])]
+    write_lines(data / "queries.jsonl", lines)
+
+    with pytest.raises(ValueError) as raised:
+        probe.run(make_ctx(runner, tmp_path, data))
+
+    assert "queries.jsonl" in str(raised.value)
+    assert "line 4" in str(raised.value)
+
+
 # -- acceptance 3: metrics against hand-computed values [R7] ----------------------
 
 # en: one relevant page at rank 2 -> recall@5 1, nDCG@10 = 1/log2(3).
@@ -491,19 +548,40 @@ def committed_run(tmp_path_factory):
     return proc, record
 
 
+def expected_token_metrics(rows: list[dict]) -> dict:
+    """The tokenize arm as R8 defines it, computed here from kb.query.bm25.tokenize."""
+    from kb.query.bm25 import tokenize
+
+    counts = {q["id"]: len(tokenize(q["query"])) for q in rows if q["group"] != "en"}
+    metrics = {f"tokens_{qid}": n for qid, n in counts.items()}
+    metrics["zh_queries"] = len(counts)
+    metrics["zh_zero_token"] = sum(n == 0 for n in counts.values())
+    metrics["zh_single_token"] = sum(n == 1 for n in counts.values())
+    metrics["zh_mean_tokens"] = sum(counts.values()) / len(counts)
+    return metrics
+
+
 def test_tokenize_arm_counts_tokens_per_chinese_row(committed_run):
     _, record = committed_run
-    chinese = [q for q in committed_rows("queries.jsonl") if q["group"] in ("zh", "zh-to-en")]
     arm = record["arms"]["tokenize"]
-    metrics = arm["metrics"]
     assert arm["status"] == "measured"
-    assert {f"tokens_{q['id']}" for q in chinese} <= set(metrics)
-    counts = [metrics[f"tokens_{q['id']}"] for q in chinese]
-    assert len(counts) == len(chinese)
-    assert metrics["zh_queries"] == len(chinese)
-    assert metrics["zh_zero_token"] == sum(c == 0 for c in counts)
-    assert metrics["zh_single_token"] == sum(c == 1 for c in counts)
-    assert metrics["zh_mean_tokens"] == pytest.approx(sum(counts) / len(counts))
+    assert arm["metrics"] == pytest.approx(expected_token_metrics(committed_rows("queries.jsonl")))
+
+
+def test_tokenize_arm_counts_a_one_character_query_as_zero_tokens(
+    probe, runner, tmp_path, fake_search, fake_vectors
+):
+    # tokenize keeps runs of two or more word characters, so one Chinese
+    # character gives 0 tokens and the committed rows (all 1 token) do not
+    # tell a real count from a constant.
+    single = {**SMALL_QUERIES[2], "id": "q-one", "query": "阿"}
+    queries = SMALL_QUERIES + [single]
+    fake_search({**SMALL_RESULTS, "阿": []})
+    fake_vectors()
+
+    result = probe.run(make_ctx(runner, tmp_path, small_data(tmp_path, queries=queries)))
+
+    assert result["arms"]["tokenize"]["metrics"] == pytest.approx(expected_token_metrics(queries))
 
 
 def test_committed_set_runs_through_the_runner(committed_run):
