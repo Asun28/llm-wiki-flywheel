@@ -12,3 +12,4 @@ Format: `- YYYY-MM-DD <card or incident>: NEVER|ALWAYS|NOTE <rule> (source: <ver
 ## Lessons
 - (none yet)
 - 2026-11-14 T1-KBEVAL-HARNESS-3: ALWAYS make a process-wide monkeypatch of an os function pass every argument form it does not test (no argument, an int file descriptor) to the real function: POSIX shutil.rmtree calls os.scandir(fd), so a path-only fake passes on Windows and fails on Linux CI (source: PR #147, CI run 43568859972)
+- 2026-11-14 T1-KBEVAL-CONTRADICTION: ALWAYS record a card's RED against an importable stub that returns a well-formed wrong result, so every test fails on an assertion: a RED made only of missing-file errors runs no assertion and R3 blocks it as missing-behavioral-red (source: T1-KBEVAL-CONTRADICTION R3 decision 1, PR #150)

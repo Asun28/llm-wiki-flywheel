@@ -1,7 +1,7 @@
 ---
 id: T1-KBEVAL-CONTRADICTION
 title: "The `contradiction` probe reports precision and recall of `detect_contradictions` and of `_has_contradiction_signal` on a committed labelled case set, in total and per category"
-status: todo
+status: merged
 branch: T1-KBEVAL-CONTRADICTION
 worktree: D:\wt\llm-wiki-flywheel\T1-KBEVAL-CONTRADICTION
 plan_ref: plans/kb-baseline.md#order-of-work
