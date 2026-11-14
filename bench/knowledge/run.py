@@ -190,9 +190,18 @@ def say(text: str, stream) -> None:
     stream.flush()
 
 
-def write_record(out: Path, record: dict) -> None:
+def write_record(path: Path, record: dict) -> None:
+    """Encode the whole record before writing, so an unencodable string writes nothing."""
     text = json.dumps(record, sort_keys=True, indent=2, ensure_ascii=False, allow_nan=False)
-    (out / f"{record['probe']}.json").write_bytes((text + "\n").encode("utf-8"))
+    path.write_bytes((text + "\n").encode("utf-8"))
+
+
+def discard_record(path: Path) -> None:
+    """Remove a record a failed probe may have left; a path that cannot be removed is not one."""
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def summary_lines(probe: str, arms: dict) -> list[str]:
@@ -208,6 +217,23 @@ def summary_lines(probe: str, arms: dict) -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the probes with stdout and stderr escaping characters their encoding cannot show."""
+    restore = []
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            errors = stream.errors
+            stream.reconfigure(errors="backslashreplace")
+        except (AttributeError, OSError, ValueError):
+            continue  # not a reconfigurable text stream; leave it as it is
+        restore.append((stream, errors))
+    try:
+        return run_all(argv)
+    finally:
+        for stream, errors in reversed(restore):
+            stream.reconfigure(errors=errors)
+
+
+def run_all(argv: list[str] | None) -> int:
     args = parse_args(argv)
     for option, path in (
         ("--wiki", args.wiki),
@@ -242,31 +268,34 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         for path in probes:
             probe = path.stem
+            record_path = out / f"{probe}.json"
             tmp = Path(tempfile.mkdtemp(prefix=f"kbeval-{probe}-"))
             ctx = Context(tmp=tmp, data=BENCH / "data" / probe, wiki=wiki, raw=raw, out=out)
             try:
                 # A record left by an earlier run must not stand in for this one.
-                (out / f"{probe}.json").unlink(missing_ok=True)
+                record_path.unlink(missing_ok=True)
                 invariants, arms = run_probe(path, ctx)
+                record = {
+                    "probe": probe,
+                    "invariants": invariants,
+                    "commit": commit,
+                    "dirty": dirty,
+                    "arms": arms,
+                }
+                # Writing and printing belong to the probe: a failure in either is
+                # that probe's failure, not the end of the run.
+                write_record(record_path, record)
+                for line in summary_lines(probe, arms):
+                    say(line, sys.stdout)
             except KeyboardInterrupt:
                 raise
             except BaseException as exc:  # any other exception, sys.exit included
+                discard_record(record_path)
                 cause = "".join(traceback.format_exception_only(exc)).strip()
                 say(f"{probe} failed: {cause}", sys.stderr)
                 exit_code = 1
-                continue
             finally:
                 shutil.rmtree(tmp, ignore_errors=True)
-            record = {
-                "probe": probe,
-                "invariants": invariants,
-                "commit": commit,
-                "dirty": dirty,
-                "arms": arms,
-            }
-            write_record(out, record)
-            for line in summary_lines(probe, arms):
-                say(line, sys.stdout)
         after = guarded_listing(guarded)
     finally:
         if previous_root is None:

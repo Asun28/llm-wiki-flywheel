@@ -19,7 +19,7 @@ Default paths are relative to the checkout root. A probe is a regular file (or a
 | Code | Meaning |
 |---|---|
 | 0 | Every probe returned a valid result and no guarded directory changed. |
-| 1 | A probe failed (no `run`, an invalid return value, or any exception other than `KeyboardInterrupt` while it was imported or run, `sys.exit` with any code included), a guarded directory changed, or a guarded directory could not be listed. After a probe failure the other probes still run, write their records and the guard still runs. The failed probe has no record: `<out>/<probe>.json` from an earlier run is deleted before each probe runs. `KeyboardInterrupt` stops the run. |
+| 1 | A probe failed (no `run`, an invalid return value, or any exception other than `KeyboardInterrupt` while it was imported or run, `sys.exit` with any code included, or its record could not be written or its summary lines printed, a string UTF-8 cannot encode included), a guarded directory changed, or a guarded directory could not be listed. After a probe failure the other probes still run, write their records and the guard still runs. The failed probe has no record: `<out>/<probe>.json` from an earlier run is deleted before each probe runs. `KeyboardInterrupt` stops the run. |
 | 2 | Usage error: `--probe` names no file in the probes directory, or `--wiki`, `--raw` or `--probes-dir` is not a directory. No probe runs. |
 
 ## Record
@@ -48,7 +48,7 @@ One file per probe, `<out>/<probe>.json`, UTF-8, sorted keys, two-space indent, 
 }
 ```
 
-`reason` appears only on an unmeasured arm. Each summary line is `<probe> <arm> <status>` followed by `name=value` for each metric in name order, or by the reason for an unmeasured arm.
+`reason` appears only on an unmeasured arm. Each summary line is `<probe> <arm> <status>` followed by `name=value` for each metric in name order, or by the reason for an unmeasured arm. A character the console encoding cannot show (Chinese text on a cp1252 console, for example) is printed as a backslash escape such as `中`; the record keeps the text itself.
 
 ## Guard
 
