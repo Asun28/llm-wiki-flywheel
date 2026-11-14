@@ -24,7 +24,7 @@ acceptance:
   - 3. Same file, a temporary wiki of six pages (no source, one capture ref, two capture refs, one capture and one article ref, one article ref, two capture refs with `confidence: stated` and `belief_state: confirmed`): every metric of R3 equals its hand-computed value; an empty wiki gives `unmeasured` with `no pages`. [R3] [R4] [dod arm 2]
   - 4. Same file: a stub `add_feedback_entry` that raises `OSError` makes the runner exit 1 with the probe name. [R5] [dod arm 2]
   - 5. Same file, the real functions with `demo/wiki` run through the runner: exit 0, `trust` and `refine` `measured`, every `trust_` metric between 0 and 1, for each ratio `accepted` and `refused` are not both 1, `invariants` equal to `["I6", "I9"]`. [R1] [R2] [R6] [dod arm 2]
-depends_on: [T1-KBEVAL-HARNESS-2]
+depends_on: [T1-KBEVAL-HARNESS-3]
 parallelizable_with: [T1-KBEVAL-CONTRADICTION, T1-KBEVAL-RETRIEVAL, T1-KBEVAL-LINKER, T1-KBEVAL-CITATIONS, T1-KBEVAL-TRACE, T1-KBEVAL-REBUILD]
 budget: 450
 forbid: [any change under src/kb/ templates/ or tests/, a write under `ctx.wiki` or `ctx.raw` or to the checkout's feedback file, a model call or network request, a threshold or pass/fail judgement on a metric]

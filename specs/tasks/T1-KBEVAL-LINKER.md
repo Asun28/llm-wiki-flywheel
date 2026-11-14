@@ -24,7 +24,7 @@ acceptance:
   - 3. Same file, a four-row fixture with `inject_wikilinks` replaced by a stub that edits the page for chosen rows: the arm reports the hand-computed `tp`, `fp`, `fn`, `tn`, `precision`, `recall`, `rows_<category>` and `linked_<category>`; a row whose body already held one link and holds one after the call is not linked. [R3] [R4] [dod arm 2]
   - 4. Same file, the committed set run through the runner with the real function: exit 0, the arm `measured`, `cases` equal to the row count, `tp + fp + fn + tn` equal to `cases`, `invariants` equal to `["I11"]`. [R3] [R4] [R5] [dod arm 2]
   - 5. Each row's `why` names what the body text means, and each `common-word` and `case-variant` body uses the word in its other meaning (reviewer-verified against the diff). [R1]
-depends_on: [T1-KBEVAL-HARNESS-2]
+depends_on: [T1-KBEVAL-HARNESS-3]
 parallelizable_with: [T1-KBEVAL-CONTRADICTION, T1-KBEVAL-RETRIEVAL, T1-KBEVAL-CITATIONS, T1-KBEVAL-TRACE, T1-KBEVAL-REBUILD, T1-KBEVAL-PROVENANCE]
 budget: 450
 forbid: [any change under src/kb/ templates/ or tests/, a model call or network request, a threshold or pass/fail judgement on precision or recall, removing or relabelling a row because of what `inject_wikilinks` did with it]
