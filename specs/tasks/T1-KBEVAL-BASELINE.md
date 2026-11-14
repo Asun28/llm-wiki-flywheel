@@ -1,7 +1,7 @@
 ---
 id: T1-KBEVAL-BASELINE
 title: "`docs/knowledge-baseline.md` reports the Phase 0 numbers from one run of the knowledge bench on the main checkout's `wiki/` and `raw/`, with the committed records and the two-labeller labels of the trace sample"
-status: todo
+status: merged
 branch: T1-KBEVAL-BASELINE
 worktree: D:\wt\llm-wiki-flywheel\T1-KBEVAL-BASELINE
 plan_ref: plans/kb-baseline.md#order-of-work
