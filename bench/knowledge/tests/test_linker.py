@@ -86,8 +86,11 @@ def ctx_with_rows(tmp_path: Path, rows: list[dict]) -> SimpleNamespace:
     return ctx_with(tmp_path, [json.dumps(r, ensure_ascii=False) for r in rows])
 
 
-def stub_inject(link=(), touch=(), calls=None):
+def stub_inject(link=(), touch=(), calls=None, replace=None):
     """Replace inject_wikilinks: append a link for titles in `link`, plain text for `touch`.
+
+    `replace` maps a title to (old, new): the stub replaces the first `old` in the body
+    page with `new`, so a test can put a link at a chosen place, inside code included.
 
     Each call records its arguments and every page under the wiki directory as it was
     when the call began.
@@ -105,6 +108,12 @@ def stub_inject(link=(), touch=(), calls=None):
         edited = []
         for rel, text in pages.items():
             if rel == f"{target_id}.md":
+                continue
+            if replace and title in replace:
+                old, new = replace[title]
+                assert old in text, (title, old)
+                (root / rel).write_text(text.replace(old, new, 1), encoding="utf-8")
+                edited.append(rel.removesuffix(".md"))
                 continue
             if title in link:
                 added = f"\n\nSee [[{target_id}]]."
@@ -347,6 +356,57 @@ def test_fixture_with_no_positive_row_and_no_link_reports_zero_ratios(probe, tmp
         "precision": 0,
         "recall": 0,
     }
+
+
+# A link inject_wikilinks wrongly writes inside code is still a link in the file, so
+# the probe must count it; a count that strips code first would hide the defect the
+# inside-code control exists to catch.
+CODE_FORMS = {
+    "inline": ("Run `zeta --help` first.", "`zeta --help`", "`[[concepts/zeta|Zeta]] --help`"),
+    "backtick-fence": (
+        "Run this:\n\n```\nzeta --help\n```",
+        "zeta --help",
+        "[[concepts/zeta|Zeta]] --help",
+    ),
+    "tilde-fence": (
+        "Run this:\n\n~~~\nzeta --help\n~~~",
+        "zeta --help",
+        "[[concepts/zeta|Zeta]] --help",
+    ),
+}
+
+
+@pytest.mark.parametrize("form", CODE_FORMS)
+def test_link_inserted_inside_code_counts_as_a_false_link(probe, tmp_path, monkeypatch, form):
+    body, old, new = CODE_FORMS[form]
+    rows = [row("c1", "inside-code", "Zeta", "concepts/zeta", body)]
+    monkeypatch.setattr(
+        "kb.compile.linker.inject_wikilinks", stub_inject(replace={"Zeta": (old, new)})
+    )
+
+    metrics = probe.run(ctx_with_rows(tmp_path, rows))["arms"]["inject"]["metrics"]
+
+    names = ("linked_inside-code", "tp", "fp", "fn", "tn")
+    assert {name: metrics.get(name) for name in names} == {
+        "linked_inside-code": 1,
+        "tp": 0,
+        "fp": 1,
+        "fn": 0,
+        "tn": 0,
+    }
+
+
+def test_second_link_inserted_inside_code_beside_an_existing_link_counts(
+    probe, tmp_path, monkeypatch
+):
+    body = "See [[concepts/delta]] and run `delta --help` for Delta."
+    rows = [row("d1", "already-linked", "Delta", "concepts/delta", body)]
+    stub = stub_inject(replace={"Delta": ("`delta --help`", "`[[concepts/delta|Delta]] --help`")})
+    monkeypatch.setattr("kb.compile.linker.inject_wikilinks", stub)
+
+    metrics = probe.run(ctx_with_rows(tmp_path, rows))["arms"]["inject"]["metrics"]
+
+    assert (metrics.get("linked_already-linked"), metrics.get("fp")) == (1, 1)
 
 
 def test_inject_is_called_once_per_row_with_title_target_and_wiki_dir(probe, tmp_path, monkeypatch):
