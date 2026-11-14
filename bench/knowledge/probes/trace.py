@@ -97,8 +97,11 @@ SETEXT = re.compile(r"(?:=+|-+)[ \t]*\Z")
 THEMATIC = re.compile(r"([-*_])(?:[ \t]*\1){2,}[ \t]*\Z")
 TABLE_DELIMITER = re.compile(r"\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*\Z")
 BULLET = re.compile(r"[-+*](?=[ \t]|\Z)")
-ORDERED = re.compile(r"(\d{1,9})[.)](?=[ \t]|\Z)")
+ORDERED = re.compile(r"([0-9]{1,9})[.)](?=[ \t]|\Z)")
 TRAIL_LINE = "## Evidence Trail"
+# CommonMark block syntax treats only space and tab as white space, and only ASCII
+# digits as list-marker digits; the patterns above say so explicitly.
+SPACE_TAB = " \t"
 
 
 def leading(s: str, pos: int, col: int, rem: int) -> tuple[int, int, int]:
@@ -140,8 +143,12 @@ def unescaped_pipes(row: str) -> int:
     return row.replace("\\|", "").count("|")
 
 
+def is_blank(text: str) -> bool:
+    return not text.strip(SPACE_TAB)
+
+
 def cell_count(row: str) -> int:
-    row = row.strip().replace("\\|", "")
+    row = row.strip(SPACE_TAB).replace("\\|", "")
     if row.startswith("|"):
         row = row[1:]
     if row.endswith("|"):
@@ -161,21 +168,27 @@ def classify_lines(lines: list[str]) -> list[bool]:
     kept = [True] * len(lines)
     content = [0] * len(lines)  # offset after the container markers, for table cells
     level_two_atx: set[int] = set()
-    stack: list[tuple[str, int]] = []  # ("quote", 0) or ("item", content indent)
+    # Each container is [kind, content indent, has content]: ("quote", 0, True) or
+    # ("item", indent, False while an item that began with a blank line is empty).
+    stack: list[list] = []
     leaf: dict | None = None  # the open leaf block of the innermost container
 
     for i, s in enumerate(lines):
         pos = col = rem = matched = 0
-        for kind, indent in stack:
+        for entry in stack:
+            kind, indent = entry[0], entry[1]
             width, q, qcol = leading(s, pos, col, rem)
             if kind == "quote":
                 if width > 3 or s[q : q + 1] != ">":
                     break
                 pos, col, rem = advance(s, q + 1, qcol + 1, 0, 1)
-            elif s[pos:].strip():
+            elif not is_blank(s[pos:]):
                 if width < indent:
                     break
                 pos, col, rem = advance(s, pos, col, rem, indent)
+                entry[2] = True
+            elif not entry[2]:
+                break  # a list item can begin with at most one blank line
             matched += 1
         all_matched = matched == len(stack)
 
@@ -192,7 +205,7 @@ def classify_lines(lines: list[str]) -> list[bool]:
             leaf = None  # an unclosed fence ends with its container
 
         para = leaf if leaf is not None and leaf["kind"] == "para" else None
-        new: list[tuple[str, int]] = []
+        new: list[list] = []
         cursor = (pos, col, rem)
         while True:
             width, q, qcol = leading(s, *cursor)
@@ -201,7 +214,7 @@ def classify_lines(lines: list[str]) -> list[bool]:
             after = s[q:]
             if after.startswith(">"):
                 cursor = advance(s, q + 1, qcol + 1, 0, 1)
-                new.append(("quote", 0))
+                new.append(["quote", 0, True])
                 continue
             if THEMATIC.match(after):
                 break
@@ -210,20 +223,20 @@ def classify_lines(lines: list[str]) -> list[bool]:
                 break
             body = after[marker.end() :]
             if para is not None and not new and all_matched:
-                if not body.strip():
+                if is_blank(body):
                     break  # an empty item cannot interrupt a paragraph
                 if marker.re is ORDERED and int(marker.group(1)) != 1:
                     break  # an ordered list interrupting a paragraph starts at 1
             marker_col = qcol + marker.end()
             spaces, r, rcol = leading(s, q + marker.end(), marker_col, 0)
-            if not body.strip() or spaces >= 5:
-                new.append(("item", width + marker.end() + 1))
+            if is_blank(body) or spaces >= 5:
+                new.append(["item", width + marker.end() + 1, not is_blank(body)])
                 cursor = advance(s, q + marker.end(), marker_col, 0, 1)
             else:
-                new.append(("item", width + marker.end() + spaces))
+                new.append(["item", width + marker.end() + spaces, True])
                 cursor = (r, rcol, 0)
 
-        if not new and not all_matched and para is not None and s[pos:].strip():
+        if not new and not all_matched and para is not None and not is_blank(s[pos:]):
             width, q, _ = leading(s, pos, col, rem)
             after = s[q:]
             starts_block = width <= 3 and (
@@ -231,6 +244,7 @@ def classify_lines(lines: list[str]) -> list[bool]:
             )
             if not starts_block:  # lazy continuation of the paragraph
                 para["lines"].append(i)
+                para["lazy"].add(i)
                 content[i] = pos
                 continue
 
@@ -243,12 +257,13 @@ def classify_lines(lines: list[str]) -> list[bool]:
         width, q, _ = leading(s, pos, col, rem)
         after = s[q:]
 
-        if not after.strip():
+        if is_blank(after):
             if leaf is not None and leaf["kind"] in ("para", "table"):
                 leaf = None
             continue
         if leaf is not None and leaf["kind"] == "table":
-            if width <= 3 and (fence_opener(after) or ATX.match(after) or THEMATIC.match(after)):
+            # A row ends at a blank line, a block start or a line indented 4+ columns.
+            if width >= 4 or fence_opener(after) or ATX.match(after) or THEMATIC.match(after):
                 leaf = None
             else:
                 kept[i] = False
@@ -272,13 +287,16 @@ def classify_lines(lines: list[str]) -> list[bool]:
                 leaf = None
                 continue
             if para is not None and TABLE_DELIMITER.match(after):
-                header = lines[para["lines"][-1]][content[para["lines"][-1]] :]
+                last = para["lines"][-1]
+                header = lines[last][content[last] :]
                 if (
-                    unescaped_pipes(header)
+                    last not in para["lazy"]  # a lazy line is not in the table's container
+                    and last not in para["indented"]  # a header is indented 3 columns or less
+                    and unescaped_pipes(header)
                     and unescaped_pipes(after)
                     and cell_count(header) == cell_count(after)
                 ):
-                    kept[para["lines"][-1]] = kept[i] = False
+                    kept[last] = kept[i] = False
                     leaf = {"kind": "table"}
                     continue
             if THEMATIC.match(after):
@@ -286,10 +304,12 @@ def classify_lines(lines: list[str]) -> list[bool]:
                 continue
         if para is not None:
             para["lines"].append(i)
+            if width >= 4:
+                para["indented"].add(i)
         elif width >= 4:
             leaf = {"kind": "code"}
         else:
-            leaf = {"kind": "para", "lines": [i]}
+            leaf = {"kind": "para", "lines": [i], "lazy": set(), "indented": set()}
 
     in_trail = False
     for i, s in enumerate(lines):

@@ -654,6 +654,11 @@ BLOCK_CASES = [
         ],
     ),
     (
+        "ideographic-space-line-is-not-blank",
+        "Title line here\n　\n===\nBody sentence here.",
+        ["Body sentence here."],
+    ),
+    (
         "line-indented-four-ends-a-table",
         "a | b\n--- | ---\nrow one. | two.\n    Indented code line here.\nAfter.",
         ["Indented code line here.", "After."],
