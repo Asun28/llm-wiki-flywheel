@@ -149,12 +149,13 @@ def final_rule_errors(rows: list[dict]) -> list[str]:
             errors.append(f"line {i}: label outside the closed set")
         elif not isinstance(row["ownerRuled"], bool):
             errors.append(f"line {i}: ownerRuled is not a boolean")
+        elif row["labelA"] == row["labelB"]:
+            # Agreement decides final; an owner ruling applies only to differing labels.
+            if row["final"] != row["labelA"]:
+                errors.append(f"line {i}: agreed labels but final differs")
         elif row["ownerRuled"]:
             if row["final"] not in LABEL_SET:
                 errors.append(f"line {i}: owner-ruled final outside the closed set")
-        elif row["labelA"] == row["labelB"]:
-            if row["final"] != row["labelA"]:
-                errors.append(f"line {i}: agreed labels but final differs")
         elif row["final"] is not None:
             errors.append(f"line {i}: labels differ, no ruling, final is not null")
     return errors

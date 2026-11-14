@@ -4,11 +4,11 @@ This report gives the Phase 0 numbers of the knowledge bench (`bench/knowledge/`
 
 ## Method
 
-- One run of `python bench/knowledge/run.py --wiki wiki --raw raw --out _local/knowledge` on the main checkout, with the project `.venv` first on `PATH` and `HF_HUB_OFFLINE=1` set so the embedding model could not be downloaded. The run exited 0 and printed no `guarded directory changed:` line. No second run was made.
+- One run of `python bench/knowledge/run.py --wiki wiki --raw raw --out _local/knowledge` on the main checkout, with the project `.venv` first on `PATH` and `HF_HUB_OFFLINE=1` set so the embedding model could not be downloaded. The run completed with no probe failure and printed no `guarded directory changed:` line. No second run was made.
 - Run commit: `82ee29f3598308572d58f4b736e8140080c72f54` (`run.commit` in `bench/knowledge/summary.json`).
-- Dirty state: `run.dirty` = true. The working tree held three untracked files outside `wiki/` and `raw/`: `.github/workflows/security-scanners.yml`, `demo/2026-05-22.md` and `demo/Untitled.canvas`. No tracked file was modified. `wiki/` and `raw/` are gitignored and are not part of the dirty check.
+- Dirty state: `run.dirty` = true. The working tree held untracked files outside `wiki/` and `raw/`, under `.github/workflows/` and `demo/`. No tracked file was modified. `wiki/` and `raw/` are gitignored and are not part of the dirty check.
 - `bench/knowledge/summary.json` holds the seven records of that run, unedited, under `records`, keyed by probe. It was written by a script from the record files; it is not edited by hand.
-- Each number taken from a record is written as `` `<probe>.<arm>.<metric>` = <value> ``. Values with more than four decimals are written to four decimals. An arm is named as `` `<probe>.<arm>` ``.
+- Each number taken from a record is written as `` `<probe>.<arm>.<metric>` = <value> ``. The value is written exactly as `summary.json` stores it, with no rounding. An arm is named as `` `<probe>.<arm>` ``.
 - The labels of the trace sample are in `bench/knowledge/labels.jsonl`, one row per sample sentence, with page id, sentence index, character offsets, the sha256 of the sentence and the labels. No sentence text or source text is committed; it stays under the gitignored `_local/knowledge/`.
 
 ## Corpus and gaps
@@ -16,8 +16,8 @@ This report gives the Phase 0 numbers of the knowledge bench (`bench/knowledge/`
 - Corpus counts at the run: `run.wiki_md_files` = 183 markdown files under `wiki/`, of which `run.wiki_page_files` = 175 are pages in a subdirectory (the files the corpus probes read; the rest are root files such as `index.md` and `log.md`). `run.raw_files` = 43 files under `raw/`, a count that includes empty placeholder files such as `.gitkeep`.
 - `wiki/` and `raw/` are untracked. The corpus numbers (the `trace` record and the `provenance.captures` arm) can be rerun only on the owner's machine. The other probes run on committed case sets or on temporary data and can be rerun anywhere.
 - Unmeasured arms of this run:
-  - `retrieval.hybrid` unmeasured: vector branch returned no hit for any query. The embedding model was on disk and the index was built. With sqlite-vec 0.1.9, `PRAGMA table_info` reports an empty type for the `embedding` column, so the stored dimension reads as 0 and every vector query returns no hit (issue #154). The vector branch and the English-only embedding model therefore have no number.
-  - `rebuild.scan` unmeasured: listed_clean=6: find_changed_sources listed 6 source(s) with nothing changed since the ingest. `ingest_source` writes no `_template` keys to the manifest, so the changed-source scan reports every source as changed before any input changes, and the three model-id, template and source steps were not run.
+  - `retrieval.hybrid` unmeasured: vector branch returned no hit for any query. The embedding model was on disk and the index was built. With the installed sqlite-vec, `PRAGMA table_info` reports an empty type for the `embedding` column, so the stored embedding dimension is not read and every vector query returns no hit (issue #154). The vector branch and the English-only embedding model therefore have no number.
+  - `rebuild.scan` unmeasured: listed_clean=6: find_changed_sources listed 6 source(s) with nothing changed since the ingest. `ingest_source` writes no `_template` keys to the manifest, so the changed-source scan reports every source as changed before any input changes, and the model-id, template and source steps were not run.
 - Invariants I5 (retraction cascade) and I7 (crash consistency) have no probe in Phase 0.
 - Known measurement limits, from the probe cards:
   - The trace probe does not recognise HTML blocks, so text inside an HTML block is counted as prose (issue #157).
@@ -41,15 +41,15 @@ One row per invariant of `bench/knowledge/invariants.json`.
 | I7 | Crash-consistent | none | unmeasured: no probe in Phase 0 |
 | I8 | Cross-language | `retrieval.bm25.recall5_zh-to-en` = 0.0; `retrieval.bm25.recall5_en` = 1.0; `retrieval.hybrid` unmeasured | measured for the BM25 arm only |
 | I9 | No drift | `provenance.refine.accepted_1` = 1; `provenance.refine.refused_0` = 1 | measured for refine acceptance only; multi-round drift needs model calls |
-| I10 | Conflict detected | `contradiction.detect.precision` = 0.3125; `contradiction.detect.recall` = 0.2439 | measured |
-| I11 | Link correct | `linker.inject.precision` = 0.3333; `linker.inject.recall` = 0.5 | measured |
+| I10 | Conflict detected | `contradiction.detect.precision` = 0.3125; `contradiction.detect.recall` = 0.24390243902439024 | measured |
+| I11 | Link correct | `linker.inject.precision` = 0.3333333333333333; `linker.inject.recall` = 0.5 | measured |
 
 ## Contradiction detection
 
 Probe `contradiction`, committed labelled case set (row counts per category below). Both arms gave the same counts.
 
-- `kb.ingest.contradiction.detect_contradictions`: `contradiction.detect.tp` = 10, `contradiction.detect.fp` = 22, `contradiction.detect.fn` = 31, `contradiction.detect.tn` = 10, `contradiction.detect.precision` = 0.3125, `contradiction.detect.recall` = 0.2439.
-- `_has_contradiction_signal`: `contradiction.signal.tp` = 10, `contradiction.signal.fp` = 22, `contradiction.signal.fn` = 31, `contradiction.signal.tn` = 10, `contradiction.signal.precision` = 0.3125, `contradiction.signal.recall` = 0.2439.
+- `kb.ingest.contradiction.detect_contradictions`: `contradiction.detect.tp` = 10, `contradiction.detect.fp` = 22, `contradiction.detect.fn` = 31, `contradiction.detect.tn` = 10, `contradiction.detect.precision` = 0.3125, `contradiction.detect.recall` = 0.24390243902439024.
+- `_has_contradiction_signal`: `contradiction.signal.tp` = 10, `contradiction.signal.fp` = 22, `contradiction.signal.fn` = 31, `contradiction.signal.tn` = 10, `contradiction.signal.precision` = 0.3125, `contradiction.signal.recall` = 0.24390243902439024.
 
 Flagged rows per category (detect arm):
 
@@ -67,7 +67,7 @@ Flagged rows per category (detect arm):
 
 Probe `retrieval`, committed set of pages and queries, `kb.query.engine.search_pages` on a temporary wiki.
 
-| Group | Queries | Recall@5 | nDCG@10 | Queries with no result |
+| Group | Queries | `recall5_<group>` | `ndcg10_<group>` | Queries with no result |
 |---|---|---|---|---|
 | en | `retrieval.bm25.queries_en` = 8 | `retrieval.bm25.recall5_en` = 1.0 | `retrieval.bm25.ndcg10_en` = 1.0 | `retrieval.bm25.zero_result_en` = 0 |
 | zh | `retrieval.bm25.queries_zh` = 8 | `retrieval.bm25.recall5_zh` = 0.0 | `retrieval.bm25.ndcg10_zh` = 0.0 | `retrieval.bm25.zero_result_zh` = 8 |
@@ -80,7 +80,7 @@ Probe `retrieval`, committed set of pages and queries, `kb.query.engine.search_p
 
 Probe `linker`, committed labelled case set (row counts per category below), `kb.compile.linker.inject_wikilinks` on a temporary wiki.
 
-- Totals: `linker.inject.tp` = 12, `linker.inject.fp` = 24, `linker.inject.fn` = 12, `linker.inject.tn` = 24, `linker.inject.precision` = 0.3333, `linker.inject.recall` = 0.5.
+- Totals: `linker.inject.tp` = 12, `linker.inject.fp` = 24, `linker.inject.fn` = 12, `linker.inject.tn` = 24, `linker.inject.precision` = 0.3333333333333333, `linker.inject.recall` = 0.5.
 
 | Category | Linked | Rows |
 |---|---|---|
@@ -111,16 +111,16 @@ Probe `trace` on the owner's `wiki/` and `raw/`.
 - Pages: `trace.containment.pages_unparsed` = 0, `trace.containment.pages_no_source_field` = 1, `trace.containment.pages_no_text_source` = 8.
 - Source refs: `trace.containment.refs_total` = 180, of which `trace.containment.refs_text` = 173 text files, `trace.containment.refs_missing` = 3 with no file, `trace.containment.refs_outside` = 4 outside `raw/`, `trace.containment.refs_non_text` = 0, `trace.containment.refs_undecodable` = 0, `trace.containment.refs_url` = 0.
 - Sentences: `trace.containment.sentences` = 318 body sentences long enough to measure, plus `trace.containment.sentences_short` = 12 short ones counted apart. `trace.containment.sentences_no_text_source` = 1 sentence is on a page with no text source.
-- Lexical containment bands (share of word 5-grams found in a listed source; copied wording, not entailment): `trace.containment.band_high` = 71 at 0.8 or more, `trace.containment.band_mid` = 84 from 0.2 to below 0.8, `trace.containment.band_low` = 162 below 0.2.
+- Lexical containment bands (the share of a sentence's n-grams found in a listed source, with the n-gram sizes and band edges of R5 and R6 of `specs/tasks/T1-KBEVAL-TRACE.md`; copied wording, not entailment): `trace.containment.band_high` = 71, `trace.containment.band_mid` = 84, `trace.containment.band_low` = 162.
 - Templates: `trace.templates.templates_with_claim_span` = 1 of `trace.templates.templates_total` = 11 extraction templates has a field for a quote or offsets. The trace card names it: `book.yaml`, field `quotes`.
-- Label sample: `trace.containment.sample_sentences` = 56 sentences from `trace.containment.sample_pages` = 28 pages. The corpus has fewer than 30 pages with two banded sentences, so the sample is smaller than the 60 the spec allows for.
+- Label sample: `trace.containment.sample_sentences` = 56 sentences from `trace.containment.sample_pages` = 28 pages. The sample follows R8 of `specs/tasks/T1-KBEVAL-TRACE.md`; this corpus has too few eligible pages to fill it, and the record states the size it reached.
 
 ## Labels
 
 Each row of `bench/knowledge/labels.jsonl` carries two labels from the closed set `supported`, `partly-supported`, `unsupported`, `not-a-claim`:
 
 - labelA: Claude (the implementer of this card), after reading the sentence and the text of the page's listed sources.
-- labelB: `gpt-6-astra` through `codex exec --sandbox read-only`, given only the sentence, the text of the page's listed sources and the four label definitions, one call per distinct source list (9 calls), in an empty working directory. It was not shown labelA. The prompts and raw outputs are kept under `_local/knowledge/labelB/`.
+- labelB: `gpt-6-astra` through `codex exec --sandbox read-only`, given only the sentence, the text of the page's listed sources and the label definitions, one call per distinct source list, in an empty working directory. It was not shown labelA. The prompts and raw outputs are kept under `_local/knowledge/labelB/`.
 - `final` is the shared label where the two agree and null otherwise. No row has an owner ruling yet.
 
 Figures over all rows of `labels.jsonl` (n = 56):
@@ -147,22 +147,22 @@ Label counts:
 | mid | 14 | 0 | 4 | 0 |
 | low | 9 | 2 | 11 | 3 |
 
-All three disagreements are between `supported` and `partly-supported`. No sentence was labelled `unsupported` by either labeller. Every `not-a-claim` row is a link list or a line that names the page's source file.
+Every disagreement is between `supported` and `partly-supported`. No sentence was labelled `unsupported` by either labeller. Every `not-a-claim` row is a link list or a line that names the page's source file.
 
 ## Rebuild
 
 Probe `rebuild`, committed sources ingested with committed extractions on temporary wikis.
 
-- Second ingest of the same sources: `rebuild.idempotence.files_after_first` = 17 files after the first pass; `rebuild.idempotence.files_changed_by_second` = 2 files changed by the second, of which `rebuild.idempotence.page_files_changed_by_second` = 0 are pages (the probe card names the two as the root files `contradictions.md` and `log.md`).
-- Three ingest orders (path order against reverse and against sha256 order): `rebuild.order.page_set_equal_reverse` = 1 and `rebuild.order.page_set_equal_hashed` = 1 (same page set); `rebuild.order.pages_differing_bytes_reverse` = 9 and `rebuild.order.pages_differing_bytes_hashed` = 9 pages differ in bytes, and `rebuild.order.pages_differing_lines_reverse` = 9 and `rebuild.order.pages_differing_lines_hashed` = 9 differ in their set of lines.
+- Second ingest of the same sources: `rebuild.idempotence.files_after_first` = 17 files after the first pass; `rebuild.idempotence.files_changed_by_second` = 2 files changed by the second, of which `rebuild.idempotence.page_files_changed_by_second` = 0 are pages (the probe card names them as the root files `contradictions.md` and `log.md`).
+- Ingest orders (path order against reverse and against sha256 order): `rebuild.order.page_set_equal_reverse` = 1 and `rebuild.order.page_set_equal_hashed` = 1 (same page set); `rebuild.order.pages_differing_bytes_reverse` = 9 and `rebuild.order.pages_differing_bytes_hashed` = 9 pages differ in bytes, and `rebuild.order.pages_differing_lines_reverse` = 9 and `rebuild.order.pages_differing_lines_hashed` = 9 differ in their set of lines.
 - `rebuild.scan` unmeasured: listed_clean=6: find_changed_sources listed 6 source(s) with nothing changed since the ingest. See Corpus and gaps.
 
 ## Provenance
 
 Probe `provenance`.
 
-- Trust after one `wrong` rating, on temporary feedback stores: with one cited page `provenance.trust.trust_k1_p1` = 0.25; with three, `provenance.trust.trust_k3_p1` = 0.25, `provenance.trust.trust_k3_p2` = 0.25, `provenance.trust.trust_k3_p3` = 0.25; with ten, `provenance.trust.trust_k10_p1` = 0.25 and `provenance.trust.trust_k10_p10` = 0.25, and every other `trust_k10_` value is the same in the record. Each cited page records the full count: `provenance.trust.wrong_k1_p1` = 1, `provenance.trust.wrong_k3_p3` = 1, `provenance.trust.wrong_k10_p10` = 1.
-- `refine_page` with a replacement body of 50, 10, 1 and 0 percent of the original length: `provenance.refine.accepted_50` = 1, `provenance.refine.accepted_10` = 1, `provenance.refine.accepted_1` = 1, `provenance.refine.accepted_0` = 0, `provenance.refine.refused_0` = 1.
+- Trust after one `wrong` rating, on temporary feedback stores, for each number of cited pages the probe uses (the `k` in each metric name): `provenance.trust.trust_k1_p1` = 0.25; `provenance.trust.trust_k3_p1` = 0.25, `provenance.trust.trust_k3_p2` = 0.25, `provenance.trust.trust_k3_p3` = 0.25; `provenance.trust.trust_k10_p1` = 0.25 and `provenance.trust.trust_k10_p10` = 0.25, and every other `trust_k10_` value is the same in the record. Each cited page records the full count: `provenance.trust.wrong_k1_p1` = 1, `provenance.trust.wrong_k3_p3` = 1, `provenance.trust.wrong_k10_p10` = 1.
+- `refine_page` with the replacement body lengths of R9 of `specs/kb-baseline.md` (the percentage of the original length in each metric name): `provenance.refine.accepted_50` = 1, `provenance.refine.accepted_10` = 1, `provenance.refine.accepted_1` = 1, `provenance.refine.accepted_0` = 0, `provenance.refine.refused_0` = 1.
 - Captures on the owner's wiki: `provenance.captures.pages_with_sources` = 174 pages with sources, `provenance.captures.refs_total` = 180 refs, `provenance.captures.refs_captures` = 0 under `raw/captures/`, `provenance.captures.pages_any_capture_source` = 0, `provenance.captures.pages_all_capture_sources` = 0.
 
 ## Leads
@@ -170,7 +170,7 @@ Probe `provenance`.
 The eight leads of `intent/kb-baseline.md`, with the metrics that bear on each.
 
 ### Lead 1: contradiction check fires on exactly one negated side
-Metrics: `contradiction.detect.flagged_date` = 0, `contradiction.detect.flagged_number` = 0, `contradiction.detect.flagged_both-negated` = 0, `contradiction.detect.flagged_unrelated-negation` = 11 of `contradiction.detect.rows_unrelated-negation` = 11, `contradiction.detect.recall` = 0.2439.
+Metrics: `contradiction.detect.flagged_date` = 0, `contradiction.detect.flagged_number` = 0, `contradiction.detect.flagged_both-negated` = 0, `contradiction.detect.flagged_unrelated-negation` = 11 of `contradiction.detect.rows_unrelated-negation` = 11, `contradiction.detect.recall` = 0.24390243902439024.
 Date and number conflicts are never flagged, pairs where both sides are negated are never flagged, and every unrelated negation is flagged.
 Verdict: confirmed
 
@@ -180,7 +180,7 @@ The tokenizer half holds: every Chinese query is one token and no Chinese query 
 Verdict: confirmed
 
 ### Lead 3: linker is case-insensitive with no disambiguation, and misses Chinese titles in Chinese text
-Metrics: `linker.inject.linked_case-variant` = 12 of `linker.inject.rows_case-variant` = 12, `linker.inject.linked_common-word` = 12 of `linker.inject.rows_common-word` = 12, `linker.inject.linked_cjk-in-cjk` = 0 of `linker.inject.rows_cjk-in-cjk` = 12, `linker.inject.precision` = 0.3333.
+Metrics: `linker.inject.linked_case-variant` = 12 of `linker.inject.rows_case-variant` = 12, `linker.inject.linked_common-word` = 12 of `linker.inject.rows_common-word` = 12, `linker.inject.linked_cjk-in-cjk` = 0 of `linker.inject.rows_cjk-in-cjk` = 12, `linker.inject.precision` = 0.3333333333333333.
 Verdict: confirmed
 
 ### Lead 4: citations are returned without a context check
@@ -190,7 +190,7 @@ Verdict: confirmed
 
 ### Lead 5: templates carry no quote or offsets; pages cite at file level only
 Metrics: `trace.templates.templates_with_claim_span` = 1 of `trace.templates.templates_total` = 11; `trace.containment.refs_total` = 180 refs, all file paths or out-of-tree paths (`trace.containment.refs_url` = 0).
-Ten templates have no quote or offset field. The one exception is the `quotes` field of `book.yaml` ("Notable quotes with page numbers"), a list of quotes that is not attached to a key claim. No source ref names a span.
+The other templates counted in `trace.templates.templates_total` have no quote or offset field. The exception is the `quotes` field of `book.yaml` ("Notable quotes with page numbers"), a list of quotes that is not attached to a key claim. No source ref names a span.
 Verdict: confirmed
 
 ### Lead 6: the compile manifest key leaves out model id, prompt and backend
@@ -199,21 +199,21 @@ Verdict: not decided
 
 ### Lead 7: trust comes from user ratings only
 Metrics: `provenance.trust.trust_k1_p1` = 0.25, `provenance.trust.trust_k10_p10` = 0.25, `provenance.trust.wrong_k10_p10` = 1.
-One `wrong` rating gives each cited page the same trust whether one or ten pages are cited, so the rating is not split. The probe varies no input other than ratings, so whether anything else enters the trust value is not measured.
+One `wrong` rating gives each cited page the same trust for every `k`, so the rating is not split. The probe varies no input other than ratings, so whether anything else enters the trust value is not measured.
 Verdict: not decided
 
 ### Lead 8: refine accepts a much shorter body; captures are treated as raw sources
 Metrics: `provenance.refine.accepted_1` = 1, `provenance.refine.refused_0` = 1; `provenance.captures.refs_captures` = 0, `provenance.captures.pages_all_capture_sources` = 0.
-`refine_page` accepts a body of 1 percent of the original and refuses only an empty one. No page of the owner's wiki cites `raw/captures/`, so the captures half has no case in this corpus; the verdict covers the refine half.
+`refine_page` accepts the shortest non-empty body of the arm (`accepted_1`) and refuses only the empty one (`refused_0`). No page of the owner's wiki cites `raw/captures/`, so the captures half has no case in this corpus; the verdict covers the refine half.
 Verdict: confirmed
 
 ## What these numbers do not show
 
-- Support. The containment bands measure copied wording, not whether a source supports a sentence. The labels are from two models, not from the owner, on 56 sentences of one corpus; three rows have no `final` until the owner rules. No verifier was calibrated, so I2 has labels and no measured verifier accuracy.
+- Support. The containment bands measure copied wording, not whether a source supports a sentence. The labels are from two models, not from the owner, on the sample sentences of one corpus; the rows counted under `Rows with a null final` have no `final` until the owner rules. No verifier was calibrated, so I2 has labels and no measured verifier accuracy.
 - Correctness of query answers. The citations probe uses a scripted answer, so it shows how the query path treats citations, not how often a model cites a page outside its context or whether a cited page supports the sentence that cites it.
 - The vector branch. `retrieval.hybrid` is unmeasured (issue #154), so nothing here says how the embedding model handles Chinese or cross-language queries.
 - Cache-key coverage. `rebuild.scan` is unmeasured because `ingest_source` writes no `_template` keys, so nothing here says whether a model-id, template or source change is seen by the changed-source scan.
 - Real feedback and refine history. The trust and refine arms run on temporary data; they show what the functions do with one input, not the state of the owner's feedback store or pages.
-- Drift over repeated runs (I9 beyond one refine call), retraction cascade (I5) and crash consistency (I7).
+- Drift over repeated runs (I9 beyond the refine arm), retraction cascade (I5) and crash consistency (I7).
 - Sentence boundaries. The trace sentence rule is the trace card's literal rule: list markers become short sentences, unpunctuated list items join into one sentence, and HTML blocks are read as prose (issue #157). The sentence and band counts depend on that rule.
-- Generality. The case sets for contradiction, retrieval and linking were written by a language model with a `why` per row; they are not an external labelled set. The corpus numbers come from one owner's `wiki/` and `raw/` at one commit; the runner also accepts an `--out` inside `--wiki` or `--raw` (issue #148), which this run did not use.
+- Generality. The case sets for contradiction, retrieval and linking were written by a language model with a `why` per row; they are not an external labelled set. The corpus numbers come from the owner's `wiki/` and `raw/` at the run commit; the runner also accepts an `--out` inside `--wiki` or `--raw` (issue #148), which this run did not use.
