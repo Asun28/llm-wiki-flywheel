@@ -55,3 +55,90 @@ ruff check bench/knowledge && python -m pytest bench/knowledge/tests/test_baseli
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+Attempt 1. RED `3d0b0b1`, GREEN: the commit after it on this branch. Tests: `bench/knowledge/tests/test_baseline.py`.
+
+### Commits
+- `3d0b0b1` RED: the tests plus well-formed, wrong placeholders: `summary.json` with the `run` keys and empty `records`, an empty `labels.jsonl`, and a `docs/knowledge-baseline.md` with no section headings and one record path that is not in the empty summary. Result: 14 failed, 1 passed; every failure is an `AssertionError`. The pass is `test_kappa_helper_matches_a_worked_example`, which checks the test's own kappa helper against a hand-worked example (p_o 0.6, p_e 0.5, kappa 0.2).
+- GREEN: `summary.json` and `labels.jsonl` built by scripts (not committed) from the run below, the report, both changelog entries and this section. 15 passed.
+
+### The run
+- Command, from `D:\Projects\llm-wiki-flywheel` with its `.venv/Scripts` first on `PATH` and `HF_HUB_OFFLINE=1` (so the embedding model could not be downloaded): `python bench/knowledge/run.py --wiki wiki --raw raw --out _local/knowledge`, stdout and stderr in `_local/knowledge/run.log`.
+- Exit code 0; no `guarded directory changed:` line. One run only.
+- Commit `82ee29f3598308572d58f4b736e8140080c72f54`; every record has `dirty: true`. Cause: three untracked files outside `wiki/` and `raw/` (`.github/workflows/security-scanners.yml`, `demo/2026-05-22.md`, `demo/Untitled.canvas`); no tracked file modified.
+- Corpus at the run: 183 `.md` files under `wiki/` (175 in subdirectories), 43 files under `raw/`.
+
+### Labels
+- labelA: Claude, after reading each sentence and the full text of the page's listed sources (for the DELEGATE-52 paper, the abstract and the passages the sentences restate). Written to `_local/knowledge/labelA.jsonl` before any labelB call.
+- labelB: `codex exec -m gpt-6-astra --sandbox read-only --skip-git-repo-check --ephemeral -C <empty scratch dir> -o <out> -` with the prompt on stdin; one call per distinct source list (9 calls, 203,862 tokens in total as reported by the codex logs). Each prompt holds the four label definitions, the full text of the sources and the sentences of that source list, and asks for one JSON label per sentence. It never holds labelA. Each log reports `model: gpt-6-astra`, `provider: openai`. Prompts, outputs and logs: `_local/knowledge/labelB/`.
+- n 56, raw agreement 0.9464 (0.95), Cohen's kappa 0.8875 (0.89), 3 rows with a null `final` (all `supported` against `partly-supported`), `ownerRuled` false on every row.
+
+### Acceptance
+| Item | Proving test or command | Result |
+|---|---|---|
+| 1 [R1] | `test_summary_holds_the_run_commit_and_the_seven_records_of_the_record_shape`, `test_summary_run_holds_the_dirty_flag_and_the_two_corpus_counts` | pass |
+| 2 [R2] | `test_each_label_row_has_the_ten_keys_and_no_sentence_text`, `test_label_row_count_equals_the_trace_sample_size_of_the_run`, `test_label_rows_are_unique_per_page_and_sentence` | pass |
+| 3 [R3] | `test_labels_are_in_the_closed_set_and_final_follows_the_rule` | pass |
+| 4 [R4] [R5] [R6] | `test_report_has_the_thirteen_sections_in_order`, `test_every_backticked_record_path_in_the_report_is_in_summary`, `test_invariants_section_holds_i1_to_i11_once_each_with_i5_and_i7_unmeasured` | pass |
+| 5 [R5] | `test_labels_section_states_agreement_kappa_and_null_count_recomputed_from_labels`, `test_kappa_helper_matches_a_worked_example` | pass |
+| 6 [R5] [R7] | reviewer; also `test_every_record_number_in_the_report_equals_summary_to_four_decimals`, `test_report_states_the_run_commit_and_the_corpus_counts`, `test_every_unmeasured_arm_is_named_in_the_report_with_its_reason`, `test_leads_section_gives_each_of_the_eight_leads_one_verdict` | pass; for review |
+| 7 [R8] | entries in `CHANGELOG.md` and `CHANGELOG-history.md`; `git diff --numstat origin/main...HEAD -- src/kb templates tests pyproject.toml requirements.txt` | empty |
+
+### Mutation checks (applied one at a time to the GREEN files, tests run, file restored; none committed)
+| Mutation | Caught by |
+|---|---|
+| M1 kappa in the report 0.89 to 0.88 | `test_labels_section_states_agreement_kappa_and_null_count_recomputed_from_labels` |
+| M2 agreement 0.95 to 0.96 | same |
+| M3 null-final count 3 to 2 | same |
+| M4 `linker.inject.precision` written as 0.3334 | `test_every_record_number_in_the_report_equals_summary_to_four_decimals` |
+| M5 I5 row marked measured | `test_invariants_section_holds_i1_to_i11_once_each_with_i5_and_i7_unmeasured` |
+| M6 a lead verdict outside the three values | `test_leads_section_gives_each_of_the_eight_leads_one_verdict` |
+| M7 one `labelB` changed in `labels.jsonl` | `test_labels_are_in_the_closed_set_and_final_follows_the_rule`, `test_labels_section_states_agreement_kappa_and_null_count_recomputed_from_labels` |
+
+## Attempt 2 evidence
+R3 (codex, decision 1/2) blocked `49c48a3` with 3 findings. RED `e96b09c`, GREEN: the commit after it. The bench was not rerun; `summary.json` and `labels.jsonl` are byte-equal to `49c48a3`.
+
+### Commits
+- `e96b09c` RED, run against the `49c48a3` data and report: 3 failed, 16 passed, every failure an `AssertionError`:
+  - `test_final_rule_rejects_an_owner_ruling_that_overrides_agreed_labels` (`assert 0 == 1`): the new `final_rule_errors` helper still had the attempt-1 order (`ownerRuled` checked before agreement), so the fixture row `supported`/`supported`, `ownerRuled: true`, `final: unsupported` was accepted.
+  - `test_every_record_number_in_the_report_is_the_exact_text_of_its_summary_value`: the rounded values (for example `0.2439` for `0.24390243902439024`).
+  - `test_every_number_in_the_report_comes_from_summary_or_labels`: the stray numbers of the attempt-1 report.
+- GREEN: agreement checked first in `final_rule_errors`; the report rewritten. 19 passed.
+
+### Findings
+| Finding | Fix | Tests |
+|---|---|---|
+| 1 agreed-final-override | `final_rule_errors` checks `labelA == labelB` first: `final` must equal them whatever `ownerRuled` says; an owner ruling is checked only for differing labels | `test_labels_are_in_the_closed_set_and_final_follows_the_rule` (committed file), `test_final_rule_rejects_an_owner_ruling_that_overrides_agreed_labels` (temporary fixture row), `test_final_rule_accepts_an_owner_ruling_on_differing_labels_and_null_without_one` (control rows) |
+| 2 rounded-record-values | Every `` `probe.arm.metric` = value `` rewritten from `summary.json` as `json.dumps` prints the value; the tolerance is gone and the comparison is on the exact text. Agreement and kappa stay at two decimals (acceptance 5). | `test_every_record_number_in_the_report_is_the_exact_text_of_its_summary_value` |
+| 3 numbers-outside-baseline-data | Removed or reworded every number not from `summary.json` or `labels.jsonl` (list below) | `test_every_number_in_the_report_comes_from_summary_or_labels`, `test_number_scan_flags_a_number_from_outside_the_data` |
+
+Number scan rule: a number token is digits not preceded by a letter, digit, `#`, `.` or `-` and not followed by a letter or digit, so `I5`, `R5`, `T1`, `BM25` and `#154` are not numbers. Allow-list, removed before the scan: backticked spans (record paths, file names, commands, the SHA) unless the span is a bare number; `Phase <n>`; `Lead <n>`; the two acceptance-5 label figures. Every remaining token must equal a number in `summary.json` (numeric values, and digits inside its strings such as the `rebuild.scan` reason) or a count from `labels.jsonl` (row count, null-final count, label counts per labeller and for `final`, `final` per band, zero). Limit: a stray number that happens to equal one of those values passes (mutation N2 below). Spelled-out structural counts that define the run and the card (one run, seven records, two labellers, the eight leads, one `wrong` rating) are not scanned.
+
+Removed or reworded numbers in `docs/knowledge-baseline.md`:
+- run exit code `0` (now "completed with no probe failure");
+- count of untracked files (`three`) and the dated file name; now "untracked files outside `wiki/` and `raw/`, under `.github/workflows/` and `demo/`";
+- "four decimals" rounding rule; record values now exact;
+- sqlite-vec version `0.1.9` and the stored dimension `0`;
+- "the three model-id, template and source steps";
+- `Recall@5` and `nDCG@10` headers, now the metric-name stems `recall5_<group>` and `ndcg10_<group>`;
+- word 5-grams and the band edges `0.8` and `0.2`, now a pointer to R5 and R6 of `specs/tasks/T1-KBEVAL-TRACE.md`;
+- sample limits `30` pages and `60` sentences, now a pointer to R8 of the trace card;
+- labeller call count `9` and "four label definitions";
+- "All three disagreements", "names the two", "Three ingest orders", "Ten templates";
+- trust page counts "one / three / ten" and refine percentages `50, 10, 1 and 0`, now pointers to the `k` and percentage in the metric names and R9 of `specs/kb-baseline.md`;
+- "1 percent" in lead 8, now `accepted_1` / `refused_0`;
+- "56 sentences" and "three rows" in the last section, now "the sample sentences" and the `Rows with a null final` figure;
+- "one refine call", "one owner's ... at one commit".
+
+No statement was dropped; each was reworded to rest on a metric path or a requirement id.
+
+### Mutation checks (applied one at a time, tests run, file restored; none committed)
+| Mutation | Caught by |
+|---|---|
+| N1 "The run took 7 minutes." added | `test_every_number_in_the_report_comes_from_summary_or_labels` |
+| N2 "It used 9 calls." added | not caught: 9 is a value in `summary.json` (stated limit) |
+| N3 `contradiction.detect.recall` written as `0.2439` | exact-text test and number scan |
+| N4 `linker.inject.recall` written as `0.50` | exact-text test and number scan |
+| N5 kappa written as `0.8875` | acceptance-5 test and number scan |
+| N6 `final_rule_errors` with `ownerRuled` checked first (the RED commit) | `test_final_rule_rejects_an_owner_ruling_that_overrides_agreed_labels` |

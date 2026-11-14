@@ -1,0 +1,344 @@
+{
+  "records": {
+    "citations": {
+      "arms": {
+        "scripted": {
+          "cases": 6,
+          "metrics": {
+            "citation_keys_uniform": 1,
+            "injected_in-context": 6,
+            "injected_nonexistent": 12,
+            "injected_out-of-context": 12,
+            "injected_traversal": 6,
+            "returned_in-context": 6,
+            "returned_nonexistent": 12,
+            "returned_out-of-context": 12,
+            "returned_traversal": 0
+          },
+          "status": "measured"
+        }
+      },
+      "commit": "82ee29f3598308572d58f4b736e8140080c72f54",
+      "dirty": true,
+      "invariants": [
+        "I1"
+      ],
+      "probe": "citations"
+    },
+    "contradiction": {
+      "arms": {
+        "detect": {
+          "cases": 73,
+          "metrics": {
+            "flagged_both-negated": 0,
+            "flagged_date": 0,
+            "flagged_negated-paraphrase": 11,
+            "flagged_negation": 10,
+            "flagged_number": 0,
+            "flagged_paraphrase": 0,
+            "flagged_unrelated-negation": 11,
+            "fn": 31,
+            "fp": 22,
+            "precision": 0.3125,
+            "recall": 0.24390243902439024,
+            "rows_both-negated": 10,
+            "rows_date": 10,
+            "rows_negated-paraphrase": 11,
+            "rows_negation": 11,
+            "rows_number": 10,
+            "rows_paraphrase": 10,
+            "rows_unrelated-negation": 11,
+            "tn": 10,
+            "tp": 10
+          },
+          "status": "measured"
+        },
+        "signal": {
+          "cases": 73,
+          "metrics": {
+            "flagged_both-negated": 0,
+            "flagged_date": 0,
+            "flagged_negated-paraphrase": 11,
+            "flagged_negation": 10,
+            "flagged_number": 0,
+            "flagged_paraphrase": 0,
+            "flagged_unrelated-negation": 11,
+            "fn": 31,
+            "fp": 22,
+            "precision": 0.3125,
+            "recall": 0.24390243902439024,
+            "rows_both-negated": 10,
+            "rows_date": 10,
+            "rows_negated-paraphrase": 11,
+            "rows_negation": 11,
+            "rows_number": 10,
+            "rows_paraphrase": 10,
+            "rows_unrelated-negation": 11,
+            "tn": 10,
+            "tp": 10
+          },
+          "status": "measured"
+        }
+      },
+      "commit": "82ee29f3598308572d58f4b736e8140080c72f54",
+      "dirty": true,
+      "invariants": [
+        "I10"
+      ],
+      "probe": "contradiction"
+    },
+    "linker": {
+      "arms": {
+        "inject": {
+          "cases": 72,
+          "metrics": {
+            "fn": 12,
+            "fp": 24,
+            "linked_already-linked": 0,
+            "linked_case-variant": 12,
+            "linked_cjk-in-cjk": 0,
+            "linked_common-word": 12,
+            "linked_inside-code": 0,
+            "linked_proper-mention": 12,
+            "precision": 0.3333333333333333,
+            "recall": 0.5,
+            "rows_already-linked": 12,
+            "rows_case-variant": 12,
+            "rows_cjk-in-cjk": 12,
+            "rows_common-word": 12,
+            "rows_inside-code": 12,
+            "rows_proper-mention": 12,
+            "tn": 24,
+            "tp": 12
+          },
+          "status": "measured"
+        }
+      },
+      "commit": "82ee29f3598308572d58f4b736e8140080c72f54",
+      "dirty": true,
+      "invariants": [
+        "I11"
+      ],
+      "probe": "linker"
+    },
+    "provenance": {
+      "arms": {
+        "captures": {
+          "cases": 175,
+          "metrics": {
+            "confirmed_all_capture": 0,
+            "pages_all_capture_sources": 0,
+            "pages_any_capture_source": 0,
+            "pages_with_sources": 174,
+            "refs_captures": 0,
+            "refs_total": 180,
+            "stated_all_capture": 0
+          },
+          "status": "measured"
+        },
+        "refine": {
+          "cases": 4,
+          "metrics": {
+            "accepted_0": 0,
+            "accepted_1": 1,
+            "accepted_10": 1,
+            "accepted_50": 1,
+            "refused_0": 1,
+            "refused_1": 0,
+            "refused_10": 0,
+            "refused_50": 0
+          },
+          "status": "measured"
+        },
+        "trust": {
+          "cases": 3,
+          "metrics": {
+            "trust_k10_p1": 0.25,
+            "trust_k10_p10": 0.25,
+            "trust_k10_p2": 0.25,
+            "trust_k10_p3": 0.25,
+            "trust_k10_p4": 0.25,
+            "trust_k10_p5": 0.25,
+            "trust_k10_p6": 0.25,
+            "trust_k10_p7": 0.25,
+            "trust_k10_p8": 0.25,
+            "trust_k10_p9": 0.25,
+            "trust_k1_p1": 0.25,
+            "trust_k3_p1": 0.25,
+            "trust_k3_p2": 0.25,
+            "trust_k3_p3": 0.25,
+            "wrong_k10_p1": 1,
+            "wrong_k10_p10": 1,
+            "wrong_k10_p2": 1,
+            "wrong_k10_p3": 1,
+            "wrong_k10_p4": 1,
+            "wrong_k10_p5": 1,
+            "wrong_k10_p6": 1,
+            "wrong_k10_p7": 1,
+            "wrong_k10_p8": 1,
+            "wrong_k10_p9": 1,
+            "wrong_k1_p1": 1,
+            "wrong_k3_p1": 1,
+            "wrong_k3_p2": 1,
+            "wrong_k3_p3": 1
+          },
+          "status": "measured"
+        }
+      },
+      "commit": "82ee29f3598308572d58f4b736e8140080c72f54",
+      "dirty": true,
+      "invariants": [
+        "I6",
+        "I9"
+      ],
+      "probe": "provenance"
+    },
+    "rebuild": {
+      "arms": {
+        "idempotence": {
+          "cases": 6,
+          "metrics": {
+            "files_after_first": 17,
+            "files_changed_by_second": 2,
+            "page_files_changed_by_second": 0
+          },
+          "status": "measured"
+        },
+        "order": {
+          "cases": 6,
+          "metrics": {
+            "page_set_equal_hashed": 1,
+            "page_set_equal_reverse": 1,
+            "pages_differing_bytes_hashed": 9,
+            "pages_differing_bytes_reverse": 9,
+            "pages_differing_lines_hashed": 9,
+            "pages_differing_lines_reverse": 9
+          },
+          "status": "measured"
+        },
+        "scan": {
+          "cases": 0,
+          "metrics": {},
+          "reason": "listed_clean=6: find_changed_sources listed 6 source(s) with nothing changed since the ingest",
+          "status": "unmeasured"
+        }
+      },
+      "commit": "82ee29f3598308572d58f4b736e8140080c72f54",
+      "dirty": true,
+      "invariants": [
+        "I3",
+        "I4"
+      ],
+      "probe": "rebuild"
+    },
+    "retrieval": {
+      "arms": {
+        "bm25": {
+          "cases": 24,
+          "metrics": {
+            "ndcg10_en": 1.0,
+            "ndcg10_zh": 0.0,
+            "ndcg10_zh-to-en": 0.0,
+            "queries_en": 8,
+            "queries_zh": 8,
+            "queries_zh-to-en": 8,
+            "recall5_en": 1.0,
+            "recall5_zh": 0.0,
+            "recall5_zh-to-en": 0.0,
+            "zero_result_en": 0,
+            "zero_result_zh": 8,
+            "zero_result_zh-to-en": 8
+          },
+          "status": "measured"
+        },
+        "hybrid": {
+          "cases": 0,
+          "metrics": {},
+          "reason": "vector branch returned no hit for any query",
+          "status": "unmeasured"
+        },
+        "tokenize": {
+          "cases": 16,
+          "metrics": {
+            "tokens_x-01": 1,
+            "tokens_x-02": 1,
+            "tokens_x-03": 1,
+            "tokens_x-04": 1,
+            "tokens_x-05": 1,
+            "tokens_x-06": 1,
+            "tokens_x-07": 1,
+            "tokens_x-08": 1,
+            "tokens_zh-01": 1,
+            "tokens_zh-02": 1,
+            "tokens_zh-03": 1,
+            "tokens_zh-04": 1,
+            "tokens_zh-05": 1,
+            "tokens_zh-06": 1,
+            "tokens_zh-07": 1,
+            "tokens_zh-08": 1,
+            "zh_mean_tokens": 1.0,
+            "zh_queries": 16,
+            "zh_single_token": 16,
+            "zh_zero_token": 0
+          },
+          "status": "measured"
+        }
+      },
+      "commit": "82ee29f3598308572d58f4b736e8140080c72f54",
+      "dirty": true,
+      "invariants": [
+        "I8"
+      ],
+      "probe": "retrieval"
+    },
+    "trace": {
+      "arms": {
+        "containment": {
+          "cases": 175,
+          "metrics": {
+            "band_high": 71,
+            "band_low": 162,
+            "band_mid": 84,
+            "pages_no_source_field": 1,
+            "pages_no_text_source": 8,
+            "pages_unparsed": 0,
+            "refs_missing": 3,
+            "refs_non_text": 0,
+            "refs_outside": 4,
+            "refs_text": 173,
+            "refs_total": 180,
+            "refs_undecodable": 0,
+            "refs_url": 0,
+            "sample_pages": 28,
+            "sample_sentences": 56,
+            "sentences": 318,
+            "sentences_no_text_source": 1,
+            "sentences_short": 12
+          },
+          "status": "measured"
+        },
+        "templates": {
+          "cases": 11,
+          "metrics": {
+            "templates_total": 11,
+            "templates_with_claim_span": 1
+          },
+          "status": "measured"
+        }
+      },
+      "commit": "82ee29f3598308572d58f4b736e8140080c72f54",
+      "dirty": true,
+      "invariants": [
+        "I1"
+      ],
+      "probe": "trace"
+    }
+  },
+  "run": {
+    "commit": "82ee29f3598308572d58f4b736e8140080c72f54",
+    "dirty": true,
+    "raw_files": 43,
+    "wiki_md_files": 183,
+    "wiki_page_files": 175
+  }
+}
