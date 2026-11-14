@@ -1,7 +1,7 @@
 ---
 id: T1-KBEVAL-REBUILD
 title: "The `rebuild` probe reports the files a second ingest changes, the page differences between three ingest orders, and whether `find_changed_sources` sees a model id change, a template change and a source change"
-status: todo
+status: merged
 branch: T1-KBEVAL-REBUILD
 worktree: D:\wt\llm-wiki-flywheel\T1-KBEVAL-REBUILD
 plan_ref: plans/kb-baseline.md#order-of-work
