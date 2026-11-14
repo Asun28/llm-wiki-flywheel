@@ -1,7 +1,7 @@
 ---
 id: T1-KBEVAL-RETRIEVAL
 title: "The `retrieval` probe reports recall@5 and nDCG@10 of `search_pages` for English, Chinese and Chinese-to-English queries with the vector branch off and on, and the token count of `tokenize` per Chinese query"
-status: todo
+status: merged
 branch: T1-KBEVAL-RETRIEVAL
 worktree: D:\wt\llm-wiki-flywheel\T1-KBEVAL-RETRIEVAL
 plan_ref: plans/kb-baseline.md#order-of-work
