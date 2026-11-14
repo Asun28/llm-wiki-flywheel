@@ -54,3 +54,28 @@ ruff check bench/knowledge && python -m pytest bench/knowledge/tests/test_retrie
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+Attempt 1. RED commit `4d5432a` (`bench/knowledge/tests/test_retrieval.py`): 5 failed, 27 errors, every one a `FileNotFoundError` for `probes/retrieval.py`, `data/retrieval/pages.jsonl` or `data/retrieval/queries.jsonl`.
+
+| Item | Proving test or command | Result |
+|---|---|---|
+| 1 | `test_committed_pages_meet_the_minimum_counts_and_language_rules`, `test_committed_queries_meet_the_minimum_counts_and_group_rules`, `test_each_zh_query_is_a_substring_of_its_relevant_page_body` | pass |
+| 2 | `test_a_bad_pages_line_raises_with_file_and_line` (5 causes), `test_a_bad_queries_line_raises_with_file_and_line` (12 cases over 5 causes), `test_a_line_that_is_not_utf8_raises_with_file_and_line` | pass |
+| 3 | `test_search_arms_report_recall_ndcg_and_zero_results` (hand values: 1/log2(3), (1 + 1/log2(7)) / (1 + 1/log2(3)), an empty list) | pass |
+| 4 | `test_bm25_arm_sets_disable_vectors_and_restores_it[0]`, `[None]` | pass |
+| 5 | `test_hybrid_arm_is_unmeasured_with_the_cause` (model load raises, index build raises, index build returns False, no vector hit) | pass |
+| 6 | `test_tokenize_arm_counts_tokens_per_chinese_row` (committed set, through the runner) | pass |
+| 7 | `test_committed_set_runs_through_the_runner`, `test_each_query_is_searched_once_per_arm_in_a_wiki_under_tmp`, `test_pages_are_written_as_concept_pages_under_tmp`; `python bench/knowledge/run.py --probe retrieval` exit 0, no guard line | pass |
+| 8 | reviewer reads `bench/knowledge/data/retrieval/*.jsonl` | for review |
+
+Input forms and failure paths the probe handles:
+- A line that is not UTF-8, not JSON, or a JSON value other than an object: `ValueError` with file and line (`test_a_line_that_is_not_utf8_raises_with_file_and_line`, `not an object` cases).
+- A missing field or an empty string field; a repeated id; an id not of the form `concepts/<slug>`; a lang other than `en`/`zh` or text that breaks it; a role other than `target`/`distractor` (`test_a_bad_pages_line_raises_with_file_and_line`; the id form and an unknown lang share the code path of the lang and role rules and have no test of their own).
+- A relevant id that is a distractor or no page; an unknown group; an en query of 7 words or with a word missing from the body; a zh query not in Chinese or not in the body; a zh-to-en query not in Chinese or with a relevant list that differs from the en row it translates (`test_a_bad_queries_line_raises_with_file_and_line`). A zh-to-en row may name an en row that comes later in the file.
+- Embedding model load fails, index build raises, index build returns False (model2vec or sqlite-vec not importable), the vector branch returns no hit for any query: hybrid arm `unmeasured` with that cause (`test_hybrid_arm_is_unmeasured_with_the_cause`). A missing model in an empty Hugging Face cache was also run by hand with the network blocked: `unmeasured`, `LocalEntryNotFoundError`, exit 0.
+- `huggingface_hub` reads `HF_HUB_OFFLINE` once at import, before the probe runs; the probe also sets `huggingface_hub.constants.HF_HUB_OFFLINE` for the hybrid arm and restores it. Not covered by a test; checked by a run with `HTTPS_PROXY` pointing at a closed port, which gave the same record.
+
+Observed, not fixed (outside allow_paths):
+- `search_pages` does not read `KB_DISABLE_VECTORS` (only `kb.query.hybrid.hybrid_search` does); its vector branch runs whenever the index file exists. The probe therefore runs the `bm25` arm before it builds the index.
+- With the installed sqlite-vec, `PRAGMA table_info(vec_pages)` returns an empty type for the `embedding` column, so `VectorIndex._read_stored_dim` returns 0 and `VectorIndex.query` returns `[]` for every query. Locally the hybrid arm is therefore `unmeasured: vector branch returned no hit for any query` although the model loads and the index builds (24 entries, `float[256]` in `sqlite_master`).
