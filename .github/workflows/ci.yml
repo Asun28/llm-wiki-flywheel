@@ -100,7 +100,9 @@ jobs:
         run: ruff check src/ tests/
 
       - name: Pytest collection (smoke check)
-        run: python -m pytest --collect-only -q
+        # --collect-only runs no test, so syrupy 7 reports every snapshot as
+        # unused and exits 1 unless this flag is given (same as the full suite).
+        run: python -m pytest --collect-only -q --snapshot-warn-unused
 
       - name: Pytest full suite (strict — cycle 36 closure)
         # Cycle 36 strict-gate: `continue-on-error: true` DROPPED. Closes
