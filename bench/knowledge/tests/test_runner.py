@@ -450,21 +450,51 @@ def test_probe_calling_sys_exit_fails_only_that_probe(bench, code):
         assert any(GUARD in line and "leak.md" in line for line in proc.output.splitlines())
 
 
+def scandir_denying(locked: Path, real_scandir):
+    """An os.scandir that raises PermissionError for `locked` and passes everything else on.
+
+    It replaces os.scandir process-wide, so it must accept every form the standard
+    library uses: on POSIX, shutil.rmtree calls os.scandir with an int file descriptor.
+    Only a str, bytes or PathLike argument is compared with `locked`.
+    """
+
+    def scandir(*args, **kwargs):
+        path = args[0] if args else kwargs.get("path")
+        if isinstance(path, (str, bytes, os.PathLike)):
+            if os.path.normcase(os.fsdecode(path)) == os.path.normcase(str(locked)):
+                raise PermissionError(13, "Permission denied", os.fsdecode(path))
+        return real_scandir(*args, **kwargs)
+
+    return scandir
+
+
+def test_scandir_fake_passes_non_path_arguments_to_the_real_scandir(tmp_path):
+    """The fake must not break callers that pass no path or a file descriptor."""
+    (tmp_path / "entry.txt").write_text("x", encoding="utf-8")
+    fake = scandir_denying(tmp_path / "locked", os.scandir)
+
+    with fake() as found:  # default argument: the current directory
+        assert isinstance(list(found), list)
+    with fake(tmp_path) as found:
+        assert [entry.name for entry in found] == ["entry.txt"]
+    if os.scandir in os.supports_fd:  # POSIX: the form shutil.rmtree uses
+        fd = os.open(tmp_path, os.O_RDONLY)
+        try:
+            with fake(fd) as found:
+                assert [entry.name for entry in found] == ["entry.txt"]
+        finally:
+            os.close(fd)
+    with pytest.raises(PermissionError):
+        fake(tmp_path / "locked")
+
+
 def test_unlistable_guarded_directory_fails_the_run(bench, runner, monkeypatch, capsys):
     """F5: a scan error under a guarded directory is reported, not read as an empty listing."""
-    import os
-
     locked = bench.wiki / "locked"
     locked.mkdir()
     (locked / "page.md").write_text("body", encoding="utf-8")
-    real_scandir = os.scandir
 
-    def scandir(path="."):
-        if os.path.normcase(os.fspath(path)) == os.path.normcase(str(locked)):
-            raise PermissionError(13, "Permission denied", os.fspath(path))
-        return real_scandir(path)
-
-    monkeypatch.setattr(os, "scandir", scandir)
+    monkeypatch.setattr(os, "scandir", scandir_denying(locked, os.scandir))
     code = runner.main(
         [
             *("--probes-dir", str(bench.probes), "--wiki", str(bench.wiki)),
@@ -474,6 +504,7 @@ def test_unlistable_guarded_directory_fails_the_run(bench, runner, monkeypatch, 
     output = capsys.readouterr()
 
     assert code == 1, output
+    assert "cannot list guarded directory:" in output.err
     assert str(locked) in output.out + output.err
 
 
