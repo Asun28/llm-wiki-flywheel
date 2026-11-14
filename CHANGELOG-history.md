@@ -17,6 +17,17 @@ Purpose: Full per-cycle bullet-level detail archive. CHANGELOG.md is the compact
 
 > Detailed per-cycle entries live here. High-level summaries remain in [CHANGELOG.md](CHANGELOG.md); full bullet-level detail belongs here.
 
+### 2026-11-15 — T1-KBEVAL-BASELINE (knowledge-layer baseline, Phase 0)
+
+**Theme:** report the Phase 0 numbers of the knowledge bench (`bench/knowledge/`) from one run on the owner's `wiki/` and `raw/`, with the records and the labels behind them, and change no behaviour.
+
+- **One run.** `python bench/knowledge/run.py --wiki wiki --raw raw --out _local/knowledge` on the main checkout at `82ee29f`, exit 0, no guarded-directory change. The run is `dirty: true` because of three untracked files outside `wiki/` and `raw/`. No second run was made.
+- **`bench/knowledge/summary.json`.** The seven records of that run, keyed by probe and unedited, plus `run`: the commit, the dirty flag, the markdown-file and page-file counts under `wiki/` and the file count under `raw/`.
+- **`bench/knowledge/labels.jsonl`.** One row per sentence of the run's trace sample, with page id, sentence index, offsets, sha256, band, `labelA` (Claude), `labelB` (`gpt-6-astra` through `codex exec`, blind to `labelA`), `final` and `ownerRuled`. Rows where the two disagree keep a null `final` until the owner rules. Sentence and source text stay under the gitignored `_local/knowledge/`.
+- **`docs/knowledge-baseline.md`.** Thirteen sections: method, corpus and gaps, invariants I1 to I11 (I5 and I7 unmeasured), one section per probe, labels with raw agreement and Cohen's kappa, the eight leads each with `confirmed`, `contradicted` or `not decided`, and what the numbers do not show. Every record number is written beside its `probe.arm.metric` path. Unmeasured arms: `retrieval.hybrid` (sqlite-vec reports an empty column type, issue #154) and `rebuild.scan` (`ingest_source` writes no `_template` keys).
+- **`bench/knowledge/tests/test_baseline.py`.** Checks the record shape and keys, the label rows and the `final` rule, the report's section order, that every record path in the report exists in `summary.json` and its number matches, the invariant rows, the unmeasured arms with their reasons, one verdict per lead, and the agreement, kappa and null-final figures recomputed from `labels.jsonl`.
+- **Tests:** 3785 unchanged; `tests/` is not touched.
+
 ### 2026-11-05 — dependency-security sweep (Dependabot #96–#237)
 
 **Theme:** close all 141 open Dependabot alerts (12 critical, 58 high, 65 medium, 6 low) across 28 packages, all reported against `requirements.txt`.

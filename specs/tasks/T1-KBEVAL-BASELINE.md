@@ -55,3 +55,43 @@ ruff check bench/knowledge && python -m pytest bench/knowledge/tests/test_baseli
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+Attempt 1. RED `3d0b0b1`, GREEN: the commit after it on this branch. Tests: `bench/knowledge/tests/test_baseline.py`.
+
+### Commits
+- `3d0b0b1` RED: the tests plus well-formed, wrong placeholders: `summary.json` with the `run` keys and empty `records`, an empty `labels.jsonl`, and a `docs/knowledge-baseline.md` with no section headings and one record path that is not in the empty summary. Result: 14 failed, 1 passed; every failure is an `AssertionError`. The pass is `test_kappa_helper_matches_a_worked_example`, which checks the test's own kappa helper against a hand-worked example (p_o 0.6, p_e 0.5, kappa 0.2).
+- GREEN: `summary.json` and `labels.jsonl` built by scripts (not committed) from the run below, the report, both changelog entries and this section. 15 passed.
+
+### The run
+- Command, from `D:\Projects\llm-wiki-flywheel` with its `.venv/Scripts` first on `PATH` and `HF_HUB_OFFLINE=1` (so the embedding model could not be downloaded): `python bench/knowledge/run.py --wiki wiki --raw raw --out _local/knowledge`, stdout and stderr in `_local/knowledge/run.log`.
+- Exit code 0; no `guarded directory changed:` line. One run only.
+- Commit `82ee29f3598308572d58f4b736e8140080c72f54`; every record has `dirty: true`. Cause: three untracked files outside `wiki/` and `raw/` (`.github/workflows/security-scanners.yml`, `demo/2026-05-22.md`, `demo/Untitled.canvas`); no tracked file modified.
+- Corpus at the run: 183 `.md` files under `wiki/` (175 in subdirectories), 43 files under `raw/`.
+
+### Labels
+- labelA: Claude, after reading each sentence and the full text of the page's listed sources (for the DELEGATE-52 paper, the abstract and the passages the sentences restate). Written to `_local/knowledge/labelA.jsonl` before any labelB call.
+- labelB: `codex exec -m gpt-6-astra --sandbox read-only --skip-git-repo-check --ephemeral -C <empty scratch dir> -o <out> -` with the prompt on stdin; one call per distinct source list (9 calls, 203,862 tokens in total as reported by the codex logs). Each prompt holds the four label definitions, the full text of the sources and the sentences of that source list, and asks for one JSON label per sentence. It never holds labelA. Each log reports `model: gpt-6-astra`, `provider: openai`. Prompts, outputs and logs: `_local/knowledge/labelB/`.
+- n 56, raw agreement 0.9464 (0.95), Cohen's kappa 0.8875 (0.89), 3 rows with a null `final` (all `supported` against `partly-supported`), `ownerRuled` false on every row.
+
+### Acceptance
+| Item | Proving test or command | Result |
+|---|---|---|
+| 1 [R1] | `test_summary_holds_the_run_commit_and_the_seven_records_of_the_record_shape`, `test_summary_run_holds_the_dirty_flag_and_the_two_corpus_counts` | pass |
+| 2 [R2] | `test_each_label_row_has_the_ten_keys_and_no_sentence_text`, `test_label_row_count_equals_the_trace_sample_size_of_the_run`, `test_label_rows_are_unique_per_page_and_sentence` | pass |
+| 3 [R3] | `test_labels_are_in_the_closed_set_and_final_follows_the_rule` | pass |
+| 4 [R4] [R5] [R6] | `test_report_has_the_thirteen_sections_in_order`, `test_every_backticked_record_path_in_the_report_is_in_summary`, `test_invariants_section_holds_i1_to_i11_once_each_with_i5_and_i7_unmeasured` | pass |
+| 5 [R5] | `test_labels_section_states_agreement_kappa_and_null_count_recomputed_from_labels`, `test_kappa_helper_matches_a_worked_example` | pass |
+| 6 [R5] [R7] | reviewer; also `test_every_record_number_in_the_report_equals_summary_to_four_decimals`, `test_report_states_the_run_commit_and_the_corpus_counts`, `test_every_unmeasured_arm_is_named_in_the_report_with_its_reason`, `test_leads_section_gives_each_of_the_eight_leads_one_verdict` | pass; for review |
+| 7 [R8] | entries in `CHANGELOG.md` and `CHANGELOG-history.md`; `git diff --numstat origin/main...HEAD -- src/kb templates tests pyproject.toml requirements.txt` | empty |
+
+### Mutation checks (applied one at a time to the GREEN files, tests run, file restored; none committed)
+| Mutation | Caught by |
+|---|---|
+| M1 kappa in the report 0.89 to 0.88 | `test_labels_section_states_agreement_kappa_and_null_count_recomputed_from_labels` |
+| M2 agreement 0.95 to 0.96 | same |
+| M3 null-final count 3 to 2 | same |
+| M4 `linker.inject.precision` written as 0.3334 | `test_every_record_number_in_the_report_equals_summary_to_four_decimals` |
+| M5 I5 row marked measured | `test_invariants_section_holds_i1_to_i11_once_each_with_i5_and_i7_unmeasured` |
+| M6 a lead verdict outside the three values | `test_leads_section_gives_each_of_the_eight_leads_one_verdict` |
+| M7 one `labelB` changed in `labels.jsonl` | `test_labels_are_in_the_closed_set_and_final_follows_the_rule`, `test_labels_section_states_agreement_kappa_and_null_count_recomputed_from_labels` |
