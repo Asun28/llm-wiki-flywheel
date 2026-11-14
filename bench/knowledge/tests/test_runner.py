@@ -540,3 +540,96 @@ def test_keyboard_interrupt_propagates_and_restores_kb_project_root(bench, runne
         runner.main(argv)
 
     assert os.environ["KB_PROJECT_ROOT"] == "previous-root"
+
+
+# -- acceptance 11 and 12: record writing and console output [R13] [R14] ----------
+
+
+def test_probe_returning_an_unencodable_string_fails_only_that_probe(bench):
+    """Acceptance 11: a lone surrogate cannot be written as UTF-8, so the probe fails."""
+    bench.probe(
+        "a_surrogate",
+        "def run(ctx):\n"
+        "    (ctx.wiki / 'leak.md').write_text('x', encoding='utf-8')\n"
+        "    return {'invariants': [], 'arms': {'main': ctx.unmeasured('bad \\ud800')}}\n",
+    )
+    bench.probe("b_good", VALID)
+
+    proc = bench.run()
+
+    assert proc.returncode == 1, proc.output
+    assert "a_surrogate" in proc.output
+    assert "Traceback" not in proc.output
+    assert bench.records() == ["b_good.json"]
+    assert any(GUARD in line and "leak.md" in line for line in proc.output.splitlines())
+
+
+def test_console_that_cannot_show_a_character_gets_it_escaped(bench):
+    """Acceptance 12: a cp1252 console gets an escape, the UTF-8 record the text itself."""
+    bench.probe(
+        "zh",
+        "def run(ctx):\n"
+        "    return {'invariants': [], 'arms': {'main': ctx.unmeasured('\\u4e2d\\u6587')}}\n",
+    )
+
+    proc = bench.run(io_encoding="cp1252")
+
+    assert proc.returncode == 0, proc.output
+    assert "Traceback" not in proc.output
+    record = json.loads((bench.out / "zh.json").read_text(encoding="utf-8"))
+    assert record["arms"]["main"]["reason"] == "\u4e2d\u6587"
+    assert "zh main unmeasured \\u4e2d\\u6587" in proc.stdout.splitlines()
+
+
+def test_record_write_failure_fails_only_that_probe(bench):
+    """R13: a record that cannot be written is that probe's failure; later probes still run."""
+    bench.probe(
+        "a_blocked",
+        "def run(ctx):\n"
+        "    (ctx.out / 'a_blocked.json').mkdir()\n"
+        "    return {'invariants': [], 'arms': {}}\n",
+    )
+    bench.probe("b_good", VALID)
+
+    proc = bench.run()
+
+    assert proc.returncode == 1, proc.output
+    assert "a_blocked" in proc.output
+    assert "Traceback" not in proc.output
+    assert not (bench.out / "a_blocked.json").is_file()
+    assert (bench.out / "b_good.json").is_file()
+
+
+class BrokenStdout:
+    """A stdout whose writes fail, as when the reading end of a pipe has closed."""
+
+    def write(self, text):
+        raise OSError(32, "Broken pipe")
+
+    def flush(self):
+        pass
+
+
+def test_summary_print_failure_fails_the_probe_and_keeps_the_guard(
+    bench, runner, monkeypatch, capsys
+):
+    """R13: when a summary line cannot be printed, the probe has no record and the guard runs."""
+    bench.probe(
+        "a_leaky",
+        "def run(ctx):\n"
+        "    (ctx.wiki / 'leak.md').write_text('x', encoding='utf-8')\n"
+        "    return {'invariants': [], 'arms': {'main': ctx.unmeasured('r')}}\n",
+    )
+    monkeypatch.setattr(sys, "stdout", BrokenStdout())
+    argv = [
+        *("--probes-dir", str(bench.probes), "--wiki", str(bench.wiki)),
+        *("--raw", str(bench.raw), "--out", str(bench.out)),
+    ]
+
+    code = runner.main(argv)
+    err = capsys.readouterr().err
+
+    assert code == 1
+    assert "a_leaky" in err
+    assert bench.records() == []
+    assert any(GUARD in line and "leak.md" in line for line in err.splitlines())

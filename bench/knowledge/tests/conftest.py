@@ -35,7 +35,13 @@ class Bench:
         path.write_text(textwrap.dedent(source), encoding="utf-8")
         return path
 
-    def run(self, *args: str, out: Path | None = None, defaults: bool = True):
+    def run(
+        self,
+        *args: str,
+        out: Path | None = None,
+        defaults: bool = True,
+        io_encoding: str = "utf-8",
+    ):
         argv = [sys.executable, str(RUNNER)]
         if defaults:
             argv += [
@@ -49,7 +55,7 @@ class Bench:
                 str(out or self.out),
             ]
         argv += list(args)
-        env = dict(os.environ, PYTHONIOENCODING="utf-8")
+        env = dict(os.environ, PYTHONIOENCODING=io_encoding)
         env.pop("KB_PROJECT_ROOT", None)
         proc = subprocess.run(
             argv,
@@ -57,7 +63,7 @@ class Bench:
             env=env,
             capture_output=True,
             text=True,
-            encoding="utf-8",
+            encoding=io_encoding,
             timeout=60,
         )
         proc.output = proc.stdout + proc.stderr
