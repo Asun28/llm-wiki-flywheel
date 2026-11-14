@@ -134,7 +134,7 @@ def test_repeated_id_is_rejected_with_file_and_line(probe, tmp_path):
 
 
 def test_unknown_category_is_rejected_with_file_and_line(probe, tmp_path):
-    bad = row("b", "date", category="sarcasm")
+    bad = {**row("b", "date"), "category": "sarcasm"}
     ctx = ctx_with_rows(tmp_path, [row("a", "negation"), bad])
     assert_rejected(probe, ctx, 2)
 
