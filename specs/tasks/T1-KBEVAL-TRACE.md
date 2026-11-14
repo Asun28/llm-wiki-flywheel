@@ -112,3 +112,62 @@ trace containment measured band_high=1 band_low=67 band_mid=5 pages_no_source_fi
 trace templates measured templates_total=11 templates_with_claim_span=1
 ```
 The one template is `book.yaml` (field `quotes`).
+
+## Attempt 2 evidence
+
+R3 (codex, decision 1/2) blocked `dcacd2e` with 6 findings. RED `2cd6322`, GREEN `31e6e55`. The attempt-1 rows above still hold, except that R3 now has the construct matrix below.
+
+### Commits
+- `2cd6322` RED: regression tests run against the attempt-1 probe. 27 failed, all on `AssertionError` (an unexpected exception is caught by the `outcome` helper and asserted on, so a crash also fails on an assertion); 57 passed (the 48 earlier tests and 9 control rows that attempt 1 already handled). Two earlier fixtures gained what GFM requires: `EN_BODY` a blank line after its table (otherwise the next prose line is a table row), `ZH_BODY` a delimiter row (otherwise its pipe line is not a table).
+- `31e6e55` GREEN: 85 passed. It adds one block row, `list-marker-period-inside-a-sentence`, after mutation N13 survived; that row also fails on `dcacd2e`.
+
+### Findings
+| Finding | Fix | Tests |
+|---|---|---|
+| 1-3 R3 rules were line-based | `classify_lines`: a CommonMark block pass with blockquote and list-item containers, lazy continuation, fences, ATX and setext headings, thematic breaks, GFM tables, indented code | `test_block_constructs_are_recognised_by_commonmark_structure[31 rows]`, each run with LF and CRLF line ends, checking texts, indexes and offsets |
+| 4 YAML constructor error | `yaml.YAMLError`, `ValueError` and `TypeError` from loading frontmatter count in `pages_unparsed`; the same for templates (counted, with no claim span) | `test_frontmatter_rejected_by_a_yaml_constructor_is_unparsed_and_other_pages_complete[2026-02-30, 2026-13-01]`, `test_template_rejected_by_a_yaml_constructor_is_counted_without_a_claim_span` |
+| 5-6 unreadable counted as missing | Missing only on `FileNotFoundError` or `NotADirectoryError` from `stat` or `open`, or a stat that shows no regular file. Any other `OSError` propagates, so the runner fails the probe. `stat` follows symbolic links, as the card's non-goals require. | `test_permission_error_at_stat_propagates`, `test_permission_error_at_open_propagates`, `test_io_error_during_read_propagates` (EIO from `read`), `test_path_through_a_regular_file_is_missing`, and the attempt-1 missing tests (absent file, directory named `*.md`). The fakes pass every other call through with all its arguments. |
+
+### Construct matrix (each row id is a `BLOCK_CASES` row)
+- **GFM table:** header, delimiter and rows removed; rows run to a blank line or a fence, ATX heading or thematic break. Rows: `table-no-outer-pipes`, `table-in-blockquote`, `table-in-list-item`, `table-row-without-pipes-ends-at-heading`, `table-ends-at-blank-line`. Not a table: `pipe-line-without-delimiter-is-prose`, `cell-count-mismatch-is-prose`.
+- **Setext heading:** text lines and underline removed. Rows: `setext-equals`, `setext-dash`, `setext-two-lines`, `setext-in-blockquote`. Precedence over a one-cell table delimiter: `setext-wins-over-one-cell-table`.
+- **Thematic break:** after a blank line, or after a blockquote paragraph that it ends, `---` is kept text, because R3 does not exclude it. Rows: `thematic-break-after-blank-line`, `thematic-break-after-blockquote`.
+- **Fenced code:** removed. Rows: `backtick-info-with-backtick-is-inline-code` (not a fence), `fence-in-blockquote`, `fence-in-list-item`, `unclosed-fence-ends-with-its-blockquote`, `unclosed-fence-ends-with-its-list-item`, `closing-fence-same-character-at-least-as-long`, `closing-fence-with-info-is-content`, `fence-indented-four-is-not-a-fence`.
+- **ATX heading:** removed, inside containers too; four spaces of indent is text. Rows: `atx-in-blockquote-and-list-item`, `atx-indented-four-is-text`.
+- **Evidence Trail:** a top-level ATX or setext level-2 heading whose text is `Evidence Trail` (closing hashes allowed), up to the next top-level level-2 heading. A heading inside a fence does not end it. Rows: `evidence-trail-with-closing-hashes`, `evidence-trail-heading-inside-fence-does-not-end-it`, `evidence-trail-ended-by-setext-level-two`, plus `EN_BODY` and `ZH_BODY`.
+- **Container markers:** `>`, list markers and the indent a container consumes never end a sentence and are trimmed from both of its ends. Inside a multi-line sentence they stay, because a sentence is one contiguous span of the page file. Rows: `ordered-list-markers`, `list-marker-period-inside-a-sentence`, `quoted-sentence-over-two-lines`.
+
+The probe does not recognise these, and keeps them as prose because R3 does not exclude them: HTML blocks, link reference definitions, indented code blocks, and thematic breaks. It also does not implement three rules that do not affect which lines are excluded in the tested cases: the rule that a list item may begin with at most one blank line, partial tab expansion after a container marker, and tables interrupted by a list item (rows continue, as in cmark-gfm). Tabs count to the next multiple of 4 columns.
+
+### Mutation checks for the new rules (one at a time, not committed)
+| Mutation | Caught by |
+|---|---|
+| N1 backtick info string may hold a backtick | `backtick-info-with-backtick-is-inline-code` |
+| N2 unclosed fence runs past its container | `unclosed-fence-ends-with-its-blockquote`, `-list-item` |
+| N3 setext headings not recognised | 6 rows |
+| N4 table delimiter needs a leading pipe | `table-no-outer-pipes`, `table-row-without-pipes-ends-at-heading` |
+| N5 no cell-count check | `cell-count-mismatch-is-prose` |
+| N6 table rows not continued | 5 rows |
+| N7 blockquote is not a container | 7 rows |
+| N8 list item is not a container | 6 rows |
+| N9 any closing fence length | `closing-fence-same-character-at-least-as-long` |
+| N10 ATX closing hashes kept | `evidence-trail-with-closing-hashes` |
+| N11 setext level 2 does not end the trail | `evidence-trail-ended-by-setext-level-two` |
+| N12 container markers not trimmed | 8 rows |
+| N13 a list-marker period ends a sentence | `list-marker-period-inside-a-sentence` (survived before that row was added) |
+| N14 frontmatter ValueError not caught | both constructor rows |
+| N15 any stat OSError is missing | `test_permission_error_at_stat_propagates` |
+| N16 any read OSError is missing | `test_io_error_during_read_propagates` |
+| N17 table delimiter checked before setext | 4 rows |
+| N18 paragraph-interruption rule applied when the paragraph's container did not match | `ordered-list-markers`, `list-marker-period-inside-a-sentence` |
+| N19 template ValueError not caught | template constructor test |
+| N20 Evidence Trail never entered | 6 tests |
+| N21 ATX heading kept | 7 tests |
+| N22 any open OSError is missing | `test_permission_error_at_open_propagates` |
+
+### Demo run, before (`dcacd2e`) and after (`31e6e55`)
+```
+before: band_high=1 band_mid=5 band_low=67 sentences=73 sentences_short=19 sample_pages=10 sample_sentences=20
+after:  band_high=1 band_mid=4 band_low=66 sentences=71 sentences_short=3  sample_pages=10 sample_sentences=20
+```
+Refs and templates did not change (refs_text=15, refs_total=15, others 0; templates_total=11, templates_with_claim_span=1). The cause: list markers (`1.`, `2.`, ...) used to be cut as short sentences and to split items. They are now container markers. The run exits 0 with no `guarded directory changed:` line.
