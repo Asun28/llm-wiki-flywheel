@@ -30,6 +30,8 @@ PAGE_ID = re.compile(r"concepts/[a-z0-9]+(?:-[a-z0-9]+)*")
 HAN = re.compile(r"[㐀-䶿一-鿿]")
 ONLY_HAN = re.compile(r"[㐀-䶿一-鿿]+")
 ASCII_LETTER = re.compile(r"[A-Za-z]")
+# An English query word: Latin letters, with an inner hyphen or apostrophe.
+EN_WORD = re.compile(r"[A-Za-z]+(?:['-][A-Za-z]+)*")
 MAX_RESULTS = 10
 
 
@@ -138,21 +140,23 @@ def load_queries(path: Path, pages: dict[str, dict]) -> list[dict]:
         bodies = [pages[pid]["body"] for pid in relevant]
         langs = {pages[pid]["lang"] for pid in relevant}
         if group == "en":
-            words = query.split()
+            words = query.split(" ")
+            if not all(EN_WORD.fullmatch(word) for word in words):
+                fail(path, number, "en query is not English words separated by single spaces")
             if not 2 <= len(words) <= 6:
                 fail(path, number, f"en query has {len(words)} words, not 2 to 6")
             if langs != {"en"}:
                 fail(path, number, "en query names a relevant page that is not English")
             for word in words:
-                if not any(has_word(word.lower(), body.lower()) for body in bodies):
-                    fail(path, number, f"en query word {word!r} is not in a relevant body")
+                if not all(has_word(word.lower(), body.lower()) for body in bodies):
+                    fail(path, number, f"en query word {word!r} is not in every relevant body")
         elif group == "zh":
             if not ONLY_HAN.fullmatch(query) or not 2 <= len(query) <= 8:
                 fail(path, number, "zh query is not 2 to 8 Chinese characters")
             if langs != {"zh"}:
                 fail(path, number, "zh query names a relevant page that is not Chinese")
-            if not any(query in body for body in bodies):
-                fail(path, number, "zh query does not occur in a relevant body")
+            if not all(query in body for body in bodies):
+                fail(path, number, "zh query does not occur in every relevant body")
         elif group == "zh-to-en":
             if not ONLY_HAN.fullmatch(query):
                 fail(path, number, "zh-to-en query is not in Chinese characters")
