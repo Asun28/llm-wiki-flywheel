@@ -586,6 +586,11 @@ BLOCK_CASES = [
         ["First item text.", "Second item text."],
     ),
     (
+        "list-marker-period-inside-a-sentence",
+        "1. First item\n2. Second item text.",
+        ["First item\n2. Second item text."],
+    ),
+    (
         "quoted-sentence-over-two-lines",
         "> This quoted sentence\n> spans two lines.",
         ["This quoted sentence\n> spans two lines."],
