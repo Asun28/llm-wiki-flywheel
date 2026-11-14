@@ -117,7 +117,11 @@ class Calls:
 
 
 def env_now() -> dict:
-    return {k: os.environ.get(k) for k in ("KB_DISABLE_VECTORS", "HF_HUB_OFFLINE")}
+    from huggingface_hub import constants
+
+    seen = {k: os.environ.get(k) for k in ("KB_DISABLE_VECTORS", "HF_HUB_OFFLINE")}
+    seen["hub_offline"] = constants.HF_HUB_OFFLINE
+    return seen
 
 
 @pytest.fixture
@@ -237,6 +241,13 @@ BAD_PAGE_LINES = {
         page("concepts/kai", "zh", "target", "开", "Plain English text.")
     ),
     "breaks the role rule": dumps(page("concepts/beta", "en", "background", "Beta", "Beta text.")),
+    "has an unknown lang": dumps(page("concepts/beta", "fr", "target", "Beta", "Beta text.")),
+    "has an id outside concepts/": dumps(
+        page("entities/beta", "en", "target", "Beta", "Beta text.")
+    ),
+    "has an id with a capital and a space": dumps(
+        page("concepts/Beta two", "en", "target", "Beta", "Beta text.")
+    ),
 }
 
 BAD_QUERY_LINES = {
@@ -369,7 +380,7 @@ def test_pages_are_written_as_concept_pages_under_tmp(probe, runner, tmp_path, f
         mp.setattr(kb.query.engine, "search_pages", search_pages)
         probe.run(make_ctx(runner, tmp_path, small_data(tmp_path)))
 
-    text = seen["text"]
+    text = seen.get("text", "")
     assert text.startswith("---\n")
     assert 'title: "甲"' in text
     assert "type: concept" in text
@@ -439,6 +450,31 @@ def test_hybrid_arm_is_unmeasured_with_the_cause(
     assert os.environ.get("KB_DISABLE_VECTORS") == "1"
 
 
+class ArmStopped(BaseException):
+    """Raised by a stub to stop the hybrid arm with an exception the probe does not catch."""
+
+
+@pytest.mark.parametrize("ending", ["returns", "raises"])
+def test_hybrid_arm_makes_imported_hub_offline_and_restores_it(
+    probe, runner, tmp_path, monkeypatch, calls, fake_search, fake_vectors, ending
+):
+    from huggingface_hub import constants
+
+    # huggingface_hub reads HF_HUB_OFFLINE at import, so this is the value it acts on.
+    monkeypatch.setattr(constants, "HF_HUB_OFFLINE", False)
+    fake_search(SMALL_RESULTS)
+    if ending == "raises":
+        fake_vectors(load_error=ArmStopped())
+        with pytest.raises(ArmStopped):
+            probe.run(make_ctx(runner, tmp_path, small_data(tmp_path)))
+    else:
+        fake_vectors()
+        probe.run(make_ctx(runner, tmp_path, small_data(tmp_path)))
+
+    assert [c["hub_offline"] for c in calls.load] == [True]
+    assert constants.HF_HUB_OFFLINE is False
+
+
 # -- acceptance 6 and 7: the committed set through the runner [R4] [R8] [R9] ------
 
 
@@ -461,6 +497,7 @@ def test_tokenize_arm_counts_tokens_per_chinese_row(committed_run):
     arm = record["arms"]["tokenize"]
     metrics = arm["metrics"]
     assert arm["status"] == "measured"
+    assert {f"tokens_{q['id']}" for q in chinese} <= set(metrics)
     counts = [metrics[f"tokens_{q['id']}"] for q in chinese]
     assert len(counts) == len(chinese)
     assert metrics["zh_queries"] == len(chinese)
