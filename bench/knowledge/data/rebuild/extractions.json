@@ -1,0 +1,106 @@
+{
+  "articles/starter-care.md": {
+    "title": "Keeping a Sourdough Starter",
+    "author": "Mara Ellis",
+    "core_argument": "A starter stays active when it is fed on a fixed schedule.",
+    "key_claims": [
+      "A sourdough starter needs fresh flour and water once or twice a day.",
+      "A starter kept at 100 percent hydration is easier to judge by eye."
+    ],
+    "entities_mentioned": [
+      "Chad Robertson",
+      "Tartine Bakery",
+      "King Arthur Baking"
+    ],
+    "concepts_mentioned": [
+      "Sourdough Starter",
+      "Hydration"
+    ]
+  },
+  "articles/autolyse-rest.md": {
+    "title": "Why Bakers Rest Flour and Water",
+    "author": "Jonah Pike",
+    "core_argument": "An autolyse makes dough easier to stretch.",
+    "key_claims": [
+      "An autolyse is a rest of flour and water before salt is added.",
+      "Ken Forkish uses a rest of twenty to thirty minutes."
+    ],
+    "entities_mentioned": [
+      "Ken Forkish",
+      "Chad Robertson"
+    ],
+    "concepts_mentioned": [
+      "Autolyse",
+      "Sourdough Starter"
+    ]
+  },
+  "articles/bulk-timing.md": {
+    "title": "Timing the Bulk Rise",
+    "author": "Mara Ellis",
+    "core_argument": "Bulk fermentation should be judged by the dough, not the clock.",
+    "key_claims": [
+      "Bulk fermentation is the first rise of the whole dough after mixing.",
+      "A warm sourdough starter shortens bulk fermentation."
+    ],
+    "entities_mentioned": [
+      "Ken Forkish"
+    ],
+    "concepts_mentioned": [
+      "Bulk Fermentation",
+      "Sourdough Starter",
+      "Autolyse"
+    ]
+  },
+  "articles/levain-build.md": {
+    "title": "Building a Levain",
+    "author": "Ines Varga",
+    "core_argument": "A levain built for one bake gives a predictable rise.",
+    "key_claims": [
+      "A levain is a portion of sourdough starter fed and ripened for one bake.",
+      "A ripe levain shortens bulk fermentation."
+    ],
+    "entities_mentioned": [
+      "King Arthur Baking"
+    ],
+    "concepts_mentioned": [
+      "Levain",
+      "Sourdough Starter",
+      "Bulk Fermentation"
+    ]
+  },
+  "articles/high-hydration.md": {
+    "title": "Working with Wet Dough",
+    "author": "Jonah Pike",
+    "core_argument": "Wet doughs need a gentle mix and a long rest.",
+    "key_claims": [
+      "Hydration is the weight of water divided by the weight of flour.",
+      "A long autolyse helps a high hydration dough hold its shape."
+    ],
+    "entities_mentioned": [
+      "Tartine Bakery",
+      "Chad Robertson"
+    ],
+    "concepts_mentioned": [
+      "Hydration",
+      "Levain",
+      "Autolyse"
+    ]
+  },
+  "articles/home-oven.md": {
+    "title": "Baking Bread in a Home Oven",
+    "author": "Ines Varga",
+    "core_argument": "A home oven needs a pot or a stone to bake a good loaf.",
+    "key_claims": [
+      "Ken Forkish bakes in a preheated cast iron pot to trap steam.",
+      "Dough at a lower hydration keeps its shape on a stone."
+    ],
+    "entities_mentioned": [
+      "Ken Forkish",
+      "King Arthur Baking"
+    ],
+    "concepts_mentioned": [
+      "Hydration",
+      "Bulk Fermentation"
+    ]
+  }
+}
