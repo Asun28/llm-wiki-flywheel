@@ -289,7 +289,9 @@ def test_ref_outside_raw_is_counted_outside_without_a_file_system_call(
     assert not [c for c in fs_calls if "secret" in c[1]]
 
 
-@pytest.mark.parametrize("ref", ["http://example.com/a.md", "https://example.com/b"])
+@pytest.mark.parametrize(
+    "ref", ["http://example.com/a.md", "https://example.com/b"], ids=["http", "https"]
+)
 def test_url_ref_is_counted_url_without_a_file_system_call(probe, tmp_path, fs_calls, ref):
     ctx = make_ctx(tmp_path)
     write(ctx.wiki / "concepts" / "url.md", page_text(TWO, [ref]))
@@ -426,7 +428,7 @@ def test_offsets_hold_for_a_page_with_crlf_line_ends(probe):
 
 # -- acceptance 4: short sentences [R4] [R5] ---------------------------------------
 
-S19 = "Nineteen chars yes."
+S19 = "One two six ten ab."  # five words, so only R4 makes it short
 ZH7 = "七个字的短句。"
 S20_THREE_WORDS = "Abcdefghijklm nop q."
 S20_FIVE_WORDS = "Aaaa bbb ccc ddd ee."
@@ -449,7 +451,7 @@ def test_short_sentences_are_counted_short_and_in_no_band(probe, tmp_path):
     write(ctx.wiki / "concepts" / "short.md", page_text("\n".join(every), ["raw/articles/src.md"]))
     write(
         ctx.wiki / "concepts" / "nosrc.md",
-        page_text("Tiny one here. A much longer sentence with plenty of words.", ["raw/x.md"]),
+        page_text("A b c d e here. A much longer sentence with plenty of words.", ["raw/x.md"]),
     )
 
     result = probe.run(ctx)
