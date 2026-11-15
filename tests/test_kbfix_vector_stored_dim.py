@@ -183,3 +183,31 @@ def test_dim_mismatch_warning_logged_once_under_concurrent_queries(tmp_path, mon
 
     assert results == [[]] * _THREADS
     assert len(calls) == 1
+
+
+def test_trigger_named_vec_pages_does_not_supply_the_dim(tmp_path):
+    """R1, repair attempt 3: only the table declaration counts, not a trigger
+    of the same name whose SQL holds another float[N] and sorts first."""
+    db_path = _db_path(tmp_path)
+    conn = _vec_connection(db_path)
+    try:
+        conn.execute("CREATE TABLE helper (x)")
+        conn.execute("CREATE TRIGGER vec_pages AFTER INSERT ON helper BEGIN SELECT 'float[9]'; END")
+        conn.execute("CREATE VIRTUAL TABLE vec_pages USING vec0(embedding float[7])")
+
+        assert VectorIndex(db_path)._read_stored_dim(conn) == 7
+    finally:
+        conn.close()
+
+
+def test_view_named_vec_pages_counts_as_missing_table(tmp_path, caplog):
+    """R2, repair attempt 3: a view named vec_pages is not the table -> 0, no WARNING."""
+    db_path = _db_path(tmp_path)
+    conn = _vec_connection(db_path)
+    try:
+        conn.execute("CREATE VIEW vec_pages AS SELECT 'float[9]' AS embedding")
+        with caplog.at_level(logging.WARNING, logger=_LOGGER):
+            assert VectorIndex(db_path)._read_stored_dim(conn) == 0
+    finally:
+        conn.close()
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
