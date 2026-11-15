@@ -745,12 +745,14 @@ def _extract_entity_context(name: str, extraction: dict) -> str:
     name_lower = name.lower()
     relevant = []
 
+    # #175 R7: search the LF form of each value (CR and LF are both non-word
+    # characters, so `\b` matches the same) and append the value unchanged.
     context_values = [
         _coerce_str_field(extraction, field)
         for field in ("core_argument", "abstract", "description", "problem_solved")
     ]
     for val in context_values:
-        if val and bool(re.search(rf"\b{re.escape(name_lower)}\b", val.lower())):
+        if val and bool(re.search(rf"\b{re.escape(name_lower)}\b", _to_lf(val.lower()))):
             relevant.append(val)
             break
 
@@ -758,7 +760,7 @@ def _extract_entity_context(name: str, extraction: dict) -> str:
     key_points = extraction.get("key_points")
     for claim in key_claims if key_claims is not None else key_points or []:
         if isinstance(claim, str) and bool(
-            re.search(rf"\b{re.escape(name_lower)}\b", claim.lower())
+            re.search(rf"\b{re.escape(name_lower)}\b", _to_lf(claim.lower()))
         ):
             relevant.append(claim)
 
