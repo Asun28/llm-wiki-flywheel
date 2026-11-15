@@ -68,3 +68,27 @@ ruff check src/ tests/ && python -m pytest tests/test_kbfix_crlf_writers.py test
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+
+### Attempt 1 (2026-11-16): successor of T1-KBFIX-CRLFWRITERS, branch continued from `d0605cc`
+
+- Base sync: merge `f3a0f65` (origin/main `8b37f03`, which adds T1-KBEVAL-ALTFIG, PR #177, and this card). Conflicts in `CHANGELOG.md` and `CHANGELOG-history.md` resolved keeping both entries, T1-KBFIX-CRLFWRITERS above T1-KBEVAL-ALTFIG. Main changed no file under `src/` or `tests/`, so no behaviour change came with the merge. No rebase or amend.
+- Commits carried from the predecessor (attempts 1-3 evidence in `specs/tasks/T1-KBFIX-CRLFWRITERS.md`): RED `adc752a` (acceptance 1-5: 11 failed, 4 passed) and `e378b83` (acceptance 8: 5 failed, 16 passed); fixes `f157ebb` (three writers on `read_page_text` / `restore_line_ends`), `d46bc32` (R6 guard in both writers) and `37cecd3` (R5: body writer on every page); test edits `07e2352` (`tests/test_lint.py`) and `f157ebb` (`tests/test_ingest.py` spy); docs `a7474e4`, `23db60b`.
+- This card: `bb86bdc` (CHANGELOG.md entry heading and CHANGELOG-history.md `**Cards:**` line name T1-KBFIX-CRLFWRITERS-2). No src or test change.
+- `scripts/verify_docs.py` (`bb86bdc`): collected 3929, test files 224, `OK - docs in sync`; `CLAUDE.md` State: `3929 tests across 224 test files`.
+- DoD (`bb86bdc`, Windows, main checkout `.venv`, command read from this card's `dod_command`, same text as the predecessor's): exit 0. `ruff check src/ tests/`: `All checks passed!`; pytest: `652 passed, 4 skipped, 3 warnings in 86.78s`; `6 snapshots passed.`
+- Full suite (`bb86bdc`, `python -m pytest -q -p no:cacheprovider`, nothing deselected): exit 0, `3883 passed, 29 skipped, 17 xfailed, 54 warnings in 339.14s` (3929 collected).
+- `git diff --numstat origin/main...HEAD` (`bb86bdc`, origin/main `8b37f03`): `14 0 CHANGELOG-history.md`, `1 0 CHANGELOG.md`, `1 1 CLAUDE.md`, `1 1 docs/reference/architecture.md`, `71 0 specs/tasks/T1-KBFIX-CRLFWRITERS.md`, `10 2 src/kb/ingest/evidence.py`, `12 7 src/kb/ingest/pipeline.py`, `5 3 src/kb/lint/checks/dead_links.py`, `2 2 tests/test_ingest.py`, `479 0 tests/test_kbfix_crlf_writers.py`, `1 1 tests/test_lint.py`.
+- Follow-up note (outside this card): the comment after the body write in `src/kb/ingest/pipeline.py` says `append_evidence_trail` "acquires its own `file_lock(page_path)`"; since cycle 81 it re-enters `page_lock`.
+
+| Acceptance | Test or command | Status |
+|---|---|---|
+| 1 | `test_reingest_with_context_keeps_crlf_and_matches_lf_copy` | pass |
+| 2 | `test_fresh_references_block_keeps_crlf[no-references, references-header-not-matched]`, `test_context_inserted_before_references_keeps_crlf` | pass |
+| 3 | `test_evidence_append_keeps_crlf_in_each_branch[sentinel-in-section, header-without-sentinel, no-header]` | pass |
+| 4 | `test_dead_links_fix_keeps_crlf_and_leaves_clean_page_unwritten`, `test_dead_link_only_inside_code_leaves_crlf_page_unwritten` | pass |
+| 5 | `test_mixed_page_keeps_the_lf_of_an_unchanged_line[ingest-body, evidence, dead-links]`, `test_lf_page_is_written_with_the_same_bytes_as_before[ingest-body, evidence, dead-links]` | pass |
+| 6 | DoD exit 0; full suite exit 0; existing-test edits limited to `tests/test_ingest.py` (`counting_read` spy) and `tests/test_lint.py` (one expected-value line) | pass |
+| 7 | `architecture.md` (three writers next to the linker, inserted-CR rule); one entry each in `CHANGELOG.md` and `CHANGELOG-history.md` under T1-KBFIX-CRLFWRITERS naming T1-KBFIX-CRLFWRITERS-2; `CLAUDE.md` State = `verify_docs.py` (3929 / 224) | pass (reviewer to verify) |
+| 8 | `test_cr_in_inserted_context_is_written_crlf_on_crlf_page[extraction, direct-ctx]`, `test_cr_in_inserted_context_on_lf_page_writes_the_bytes_of_before[extraction, direct-ctx]`, `test_cr_in_evidence_action_is_written_crlf_on_crlf_page`, `test_cr_in_evidence_action_on_lf_page_writes_the_bytes_of_before` | pass |
