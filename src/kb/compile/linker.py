@@ -76,26 +76,42 @@ def _unmask_code_blocks(text: str, masked: list[str], prefix: str) -> str:
 
 
 # ATX heading line: 0-3 spaces, 1-6 `#`, then a space, a tab or end of line.
-# Applied to code-masked text, so headings inside fenced code are already masked.
+# Matched on the ORIGINAL lines: a `_CODE_MASK_RE` link match can span a newline.
 _ATX_HEADING_RE = re.compile(r"(?m)^ {0,3}#{1,6}(?:[ \t][^\n]*)?$")
 
 
 def _mask_for_injection(text: str) -> tuple[str, list[str], str]:
-    """Mask code, links and images, then every ATX heading line (#161).
+    """Mask code, links, images and every ATX heading line (#161).
 
     Wikilink injection only. `_mask_code_blocks` stays unchanged for its other
-    callers (ingest Context/References editing, dead-links lint). Heading
-    placeholders come after the code placeholders and `_unmask_code_blocks`
-    restores in one pass in index order, so each heading is stored fully
-    unmasked or a code placeholder inside it would survive.
+    callers (ingest Context/References editing, dead-links lint). Both span
+    kinds are found on the original text and overlapping spans are merged, so
+    a multi-line link running into or out of a heading cannot hide the
+    heading's line. Each merged range is one placeholder holding the exact
+    original substring, which `_unmask_code_blocks` restores.
     """
-    masked_text, masked, prefix = _mask_code_blocks(text)
+    spans = sorted(
+        [m.span() for m in _CODE_MASK_RE.finditer(text)]
+        + [m.span() for m in _ATX_HEADING_RE.finditer(text)]
+    )
+    merged: list[list[int]] = []
+    for start, end in spans:
+        if merged and start < merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
 
-    def _replace(m: re.Match) -> str:
-        masked.append(_unmask_code_blocks(m.group(0), masked, prefix))
-        return f"\x00{prefix}{len(masked) - 1}\x00"
-
-    return _ATX_HEADING_RE.sub(_replace, masked_text), masked, prefix
+    prefix = uuid.uuid4().hex[:8]
+    masked: list[str] = []
+    parts: list[str] = []
+    pos = 0
+    for start, end in merged:
+        parts.append(text[pos:start])
+        parts.append(f"\x00{prefix}{len(masked)}\x00")
+        masked.append(text[start:end])
+        pos = end
+    parts.append(text[pos:])
+    return "".join(parts), masked, prefix
 
 
 def resolve_wikilinks(wiki_dir: Path | None = None) -> dict:

@@ -84,3 +84,27 @@ Recogniser differential (not committed): `_ATX_HEADING_RE.fullmatch` vs markdown
 Mutation (not committed): heading mask moved inside `_mask_code_blocks`. Result over the new file, `test_ingest.py`, `test_backlog_by_file_cycle7.py`, `test_lint.py`: 10 failed, 280 passed, incl. `test_mask_code_blocks_does_not_mask_headings` (acceptance-5 literal), 3 ingest Context/References tests, 2 cycle-7 tests. `src/kb/compile/linker.py` restored to the GREEN version afterwards.
 
 Extra check: lint test files that mention dead links (`test_lint.py`, `test_lint_checks_split.py`, `test_lint_fix_v093.py`, `test_lint_runner.py`): 95 passed, 1 skipped.
+
+Attempt 2 (repair of R3 decision 1, verdict `.review/T1-KBFIX-FROMHEAD.r3.1.813d740b.json` on `2adc9ba`). RED commit `a925e40`, GREEN commit: the `fix(T1-KBFIX-FROMHEAD)` commit after it.
+
+Finding F1 (class: mask-destroys-line-boundaries) at `src/kb/compile/linker.py:100`: attempt 1 matched headings on the code-masked text, and a `_CODE_MASK_RE` link match can cross a newline. `See [docs\n## link](url) Hydration` hid the heading line (heading linked, page written); `## [docs](\nurl) Hydration matters.` masked paragraph text as heading. Repair: `_mask_for_injection` collects `_CODE_MASK_RE` spans and `_ATX_HEADING_RE` lines on the ORIGINAL text, merges overlapping spans, and stores each merged range as one placeholder holding the exact original substring. `_mask_code_blocks` and `_CODE_MASK_RE` unchanged.
+
+RED on `2adc9ba`: 7 failed, 29 passed, all `AssertionError` (heading rewritten and body unlinked; `['entities/bread'] == []` for the heading-only page; `[] == ['entities/bread']` for the link out of a heading; differential failure list non-empty). GREEN: 36 passed.
+
+| Input form | Covering test | Result |
+|---|---|---|
+| multi-line link running into a heading (heading kept, body linked) | `test_link_running_into_heading_keeps_heading_and_links_body[single,batch]` | pass |
+| same, heading the only match: bytes and mtime unchanged | `test_link_running_into_heading_only_match_is_not_written[single,batch]` | pass |
+| multi-line link running out of a heading (paragraph text linked) | `test_link_running_out_of_heading_links_paragraph_text[single,batch]` | pass |
+| CommonMark block structure of both review cases | `test_reviewer_cases_have_the_expected_commonmark_blocks` | pass |
+| round trip: empty, plain, both review cases, heading with inline code, fence holding `# x`, image across a newline, CRLF | `test_mask_for_injection_round_trips` (8 inputs) | pass |
+| heading-free text masked exactly like `_CODE_MASK_RE` (incl. touching spans, link across a newline, empty, `#tag`) | `test_heading_free_text_is_masked_like_mask_code_blocks` (4 inputs) | pass |
+| every markdown-it-py ATX heading line inside one masked range | `test_every_commonmark_heading_line_is_protected`: 512 generated cases, 0 disagreements | pass |
+
+Mutation (not committed): span merging disabled (`if False:`). 14 failed, 22 passed (round trips, both review cases, heading with inline code, heading-free parity, differential). `linker.py` restored afterwards.
+
+Spans are merged only when they overlap; touching spans stay separate placeholders, so heading-free text keeps exactly the `_CODE_MASK_RE` spans (both forms mask the same characters).
+
+Open, not fixed (R3 freezes `_CODE_MASK_RE`): its link alternative `\((?:[^()]*|\([^()]*\))*\)` backtracks exponentially on a `](` never closed (measured 0.005 s, 0.021 s, 0.083 s for 16, 18, 20 trailing chars), in every `_mask_code_blocks` caller and in `_mask_for_injection`. The differential ends each case with three `)` lines so every opener closes. Candidate follow-up card.
+
+Acceptance 6 for attempt 2: `python scripts/verify_docs.py`: collected tests 3835, test file count 218, "docs in sync"; State line reads `3835 tests across 218 test files`; changelog entries updated to 36 tests / +36.
