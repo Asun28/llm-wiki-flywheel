@@ -52,3 +52,26 @@ ruff check src/ tests/ && python -m pytest tests/test_kbfix_ingest_template_base
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+
+Attempt 1. RED commit `37b5423`, GREEN commit `4430b05`. Tests: `tests/test_kbfix_ingest_template_baseline.py` (5 tests, supplied extractions, `_skip_vector_rebuild=True`, no model call or network).
+
+| Acceptance item | Proving test or command | Result |
+|---|---|---|
+| 1. three article ingests, scan returns `([], [])`, manifest holds `_template/article` equal to `_template_hashes()` and no other `_template/` key | `test_ingest_only_wiki_scan_lists_nothing` | pass |
+| 2. preset unequal `_template/article` stays byte-equal after an ingest; scan lists every article source | `test_existing_unequal_template_value_is_kept_and_scan_flags_type` | pass |
+| 3. source hash and `_template/article` land in one save inside one `file_lock(HASH_MANIFEST)` acquisition | `test_source_hash_and_template_key_land_in_one_locked_save` | pass |
+| 4. template file absent: source hash written, no `_template/` key | `test_absent_template_file_writes_no_template_key` | pass |
+| 5. existing ingest, crash-atomicity, manifest and compile tests pass unedited | DoD arm 2: `test_ingest.py`, `test_cycle83_ingest_crash_atomicity.py`, `test_cycle17_compile_manifest.py`, `test_cycle19_manifest_key_consistency.py`, `test_compile.py` (`git diff main -- tests/` touches only the new file); 265 passed, 1 skipped | pass |
+| 6. one entry under this card id in `CHANGELOG.md` `[Unreleased]` and `CHANGELOG-history.md`; `CLAUDE.md` State counts equal `scripts/verify_docs.py` | `python scripts/verify_docs.py`: collected tests 3798, test file count 217, "docs in sync"; State line reads `3798 tests across 217 test files` | pass (reviewer-verified) |
+
+RED against the unfixed code (`main` at `aaa4bce`): 3 failed, 2 passed. Failures are all `AssertionError`: the scan listed the three ingested sources (acceptance 1); no save carried `_template/article` (acceptance 3); the manifest had no `_template/article` after the mid-ingest edit (`None == <pre-edit hash>`, lead design test). No import or collection error. The 2 passes are acceptance 2 and 4, which guard behaviour the unfixed code already met (it never wrote a template key). GREEN: DoD exit 0, 265 passed, 1 skipped.
+
+| Input form / failure path | Covering test | Result |
+|---|---|---|
+| `_template/article` key absent: written with the hash captured at ingest start | `test_ingest_only_wiki_scan_lists_nothing`, `test_source_hash_and_template_key_land_in_one_locked_save` | pass |
+| key present, equal to the current hash: left as is (`setdefault`), scan lists nothing | `test_ingest_only_wiki_scan_lists_nothing` (ingests 2 and 3 run with the key present and equal) | pass |
+| key present, unequal: left byte-equal, scan lists the type's sources | `test_existing_unequal_template_value_is_kept_and_scan_flags_type` | pass |
+| template file absent: no `_template/` key written | `test_absent_template_file_writes_no_template_key` | pass |
+| template edited mid-ingest: pre-edit hash recorded, scan lists the source | `test_template_edited_mid_ingest_records_pre_edit_hash` (edits a tmp `article.yaml` via a wrapper around `_run_ingest_body`; `kb.compile.compiler.TEMPLATES_DIR` patched) | pass |
