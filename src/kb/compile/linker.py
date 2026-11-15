@@ -78,6 +78,17 @@ def _unmask_code_blocks(text: str, masked: list[str], prefix: str) -> str:
     return text
 
 
+def _read_page_text(path: Path) -> str:
+    """Read a page the injectors may rewrite, keeping its line endings (#168).
+
+    ``Path.read_text`` translates CRLF and lone CR to LF, and
+    ``atomic_text_write`` writes the text as given, so a page read that way
+    came back with LF endings. ``Path.read_text(newline=...)`` needs Python
+    3.13; decoding the bytes works on 3.12.
+    """
+    return path.read_bytes().decode("utf-8")
+
+
 # ATX heading line: 0-3 spaces, 1-6 `#`, then a space, a tab or end of line.
 # Matched on the ORIGINAL lines: a `_CODE_MASK_RE` link match can span a newline.
 _ATX_HEADING_RE = re.compile(r"(?m)^ {0,3}#{1,6}(?:[ \t][^\n]*)?$")
@@ -262,7 +273,7 @@ def inject_wikilinks(
         # below is the authoritative decision; this pre-scan only gates lock
         # acquisition.
         try:
-            peek_content = page_path.read_text(encoding="utf-8")
+            peek_content = _read_page_text(page_path)
         except (OSError, UnicodeDecodeError):
             continue
 
@@ -284,7 +295,7 @@ def inject_wikilinks(
         try:
             with page_lock(page_path, timeout=_INJECT_LOCK_TIMEOUT):
                 try:
-                    content = page_path.read_text(encoding="utf-8")
+                    content = _read_page_text(page_path)
                 except (OSError, UnicodeDecodeError):
                     continue
 
@@ -452,7 +463,7 @@ def inject_wikilinks_batch(
         page_records = []
         for pp in page_paths:
             try:
-                content = pp.read_text(encoding="utf-8")
+                content = _read_page_text(pp)
             except (OSError, UnicodeDecodeError):
                 continue
             page_records.append(
@@ -537,7 +548,7 @@ def _process_inject_chunk(
         try:
             with page_lock(page_path, timeout=_INJECT_LOCK_TIMEOUT):
                 try:
-                    fresh_content = page_path.read_text(encoding="utf-8")
+                    fresh_content = _read_page_text(page_path)
                 except (OSError, UnicodeDecodeError):
                     continue
 
