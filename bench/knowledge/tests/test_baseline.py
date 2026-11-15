@@ -13,6 +13,7 @@ from collections import Counter
 
 import pytest
 from conftest import REPO
+from markdown_it import MarkdownIt
 
 SUMMARY = REPO / "bench" / "knowledge" / "summary.json"
 LABELS = REPO / "bench" / "knowledge" / "labels.jsonl"
@@ -303,49 +304,110 @@ def test_labels_section_states_agreement_kappa_and_null_count_recomputed_from_la
 # -- T0-KBEVAL-RULINGS acceptance 2 and 3 [R2] [R4] ------------------------------
 
 
-def table(body: str, first_header: str) -> tuple[list[str], list[tuple[str, list[str]]]]:
-    """Header cells and every (first cell, other cells) row, in order and with any
-    repeated name kept, of the table whose header starts with `first_header`."""
-    lines = body.splitlines()
-    for i, line in enumerate(lines):
-        if not line.startswith("|"):
-            continue
-        header = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        if header[0] != first_header:
-            continue
-        rows = []
-        for row_line in lines[i + 2 :]:
-            if not row_line.startswith("|"):
-                break
-            cells = [cell.strip() for cell in row_line.strip().strip("|").split("|")]
-            rows.append((cells[0], cells[1:]))
-        return header, rows
-    return [], []
+# The report is read as it renders, through markdown-it-py (CommonMark plus GFM
+# tables), not line by line: a hand-written reader missed rows without an opening
+# pipe, second tables and other bullet forms (R3 decisions 1 and 2 of this card).
+MARKDOWN = MarkdownIt("commonmark").enable("table")
+Row = tuple[str, list[str]]
+Table = tuple[str, list[str], list[Row]]
+
+
+def plain(inline) -> str:
+    """Rendered text of an inline token. Raw HTML is left out: it does not show as text."""
+    parts = []
+    for child in inline.children or []:
+        if child.type in ("text", "text_special", "code_inline"):
+            parts.append(child.content)
+        elif child.type in ("softbreak", "hardbreak"):
+            parts.append("\n")
+    return "".join(parts)
+
+
+def rendered(text: str) -> tuple[list[Table], list[str], list[str]]:
+    """Every table as (`## ` section, header cells, rows); the text of every inline run
+    (table cells included) and of every code or raw-HTML block, which also show; and the
+    section of every piece of raw HTML, which can show a table these checks do not read."""
+    tokens = MARKDOWN.parse(text)
+    tables: list[Table] = []
+    texts: list[str] = []
+    html: list[str] = []
+    section = ""
+    cells: list[list[str]] | None = None
+    for i, token in enumerate(tokens):
+        if token.type == "heading_open" and token.tag == "h2":
+            section = plain(tokens[i + 1])
+        elif token.type == "table_open":
+            cells = []
+        elif token.type == "tr_open" and cells is not None:
+            cells.append([])
+        elif token.type == "table_close" and cells:
+            tables.append((section, cells[0], [(r[0], r[1:]) for r in cells[1:]]))
+            cells = None
+        elif token.type in ("fence", "code_block", "html_block"):
+            texts.append(token.content)
+            if token.type == "html_block":
+                html.append(section)
+        elif token.type == "inline":
+            texts.append(plain(token))
+            html += [section for child in token.children or [] if child.type == "html_inline"]
+            if cells:
+                cells[-1].append(plain(token).strip())
+    return tables, texts, html
+
+
+def matching_tables(
+    text: str, first_header: str, label: str
+) -> tuple[list[str], list[Row], list[str]]:
+    """Header and rows of every table whose header starts with `first_header`; an error
+    unless there is exactly one and it is in the Labels section. Rows of every match are
+    returned, so a second table's rows are compared too."""
+    found = [t for t in rendered(text)[0] if t[1] and t[1][0] == first_header]
+    errors = []
+    if len(found) != 1:
+        errors.append(f"{label}: {len(found)} tables with header {first_header!r}")
+    errors += [f"{label}: table under {s!r}" for s, _, _ in found if s != "Labels"]
+    if not found:
+        return [], [], errors
+    return found[0][1], [row for t in found for row in t[2]], errors
 
 
 def repeated(names: list[str]) -> list[str]:
     return sorted(name for name, n in Counter(names).items() if n > 1)
 
 
-FIGURES = (
-    "Raw agreement rate",
-    "Cohen's kappa",
-    "Rows with a null final",
-    "Rows with an owner ruling",
-)
-
-
 def figure_errors(text: str, rows: list[dict]) -> list[str]:
-    """Each Labels figure must be stated once: the checks read the first one only."""
+    """Each Labels figure must render exactly once, with its value recomputed from `rows`."""
+    a = [row["labelA"] for row in rows]
+    b = [row["labelB"] for row in rows]
+    expected = {
+        "Raw agreement rate": f"{sum(x == y for x, y in zip(a, b, strict=True)) / len(rows):.2f}",
+        "Cohen's kappa": f"{cohen_kappa(a, b):.2f}",
+        "Rows with a null final": str(sum(row["final"] is None for row in rows)),
+        "Rows with an owner ruling": str(sum(row["ownerRuled"] is True for row in rows)),
+    }
+    texts = rendered(text)[1]
     errors = []
-    for name in FIGURES:
-        found = len(re.findall(rf"^- {re.escape(name)}: ", text, flags=re.MULTILINE))
-        if found != 1:
-            errors.append(f"{name}: stated {found} times")
+    for name, value in expected.items():
+        # Any spacing or case, either apostrophe, then an optional `:` or `=` and a number.
+        words = r"\s+".join(re.escape(w).replace("'", "['’]") for w in name.split())
+        pattern = re.compile(rf"{words}\s*[:=]?\s*(-?\d+(?:\.\d+)?)", re.IGNORECASE)
+        found = [m.group(1) for t in texts for m in pattern.finditer(t)]
+        if found != [value]:
+            errors.append(f"{name}: rendered {found}, expected [{value!r}]")
     return errors
 
 
-def test_labels_section_states_each_figure_once():
+def labels_html_errors(text: str) -> list[str]:
+    """Raw HTML in the Labels section could show a figure or table the checks do not read."""
+    found = [s for s in rendered(text)[2] if s == "Labels"]
+    return [f"Labels section holds {len(found)} pieces of raw HTML"] if found else []
+
+
+def test_labels_section_holds_no_raw_html():
+    assert labels_html_errors(report()) == []
+
+
+def test_labels_section_renders_each_figure_once_with_its_recomputed_value():
     text = report()
     assert figure_errors(text, label_rows()) == []
     doubled = re.sub(
@@ -368,8 +430,13 @@ def test_labels_section_states_owner_ruled_count_recomputed_from_labels():
 
 def label_table_errors(body: str, rows: list[dict]) -> list[str]:
     """One message per way the label-count table differs from the counts of `rows`."""
-    header, table_rows = table(body, "Label")
-    errors = []
+    header, table_rows, errors = matching_tables(body, "Label", "label table")
+    others = [
+        t[1]
+        for t in rendered(body)[0]
+        if t[0] == "Labels" and t[1][:1] not in (["Label"], ["Band"])
+    ]
+    errors += [f"label table: other table in Labels with header {h}" for h in others]
     if header != ["Label", "labelA", "labelB", "final"]:
         errors.append(f"label table: header {header}")
     names = [name for name, _ in table_rows]
@@ -391,10 +458,9 @@ def label_table_errors(body: str, rows: list[dict]) -> list[str]:
 
 def band_table_errors(body: str, rows: list[dict]) -> list[str]:
     """One message per way the `final`-by-band table differs from the counts of `rows`."""
-    header, table_rows = table(body, "Band")
-    errors = []
+    header, table_rows, errors = matching_tables(body, "Band", "band table")
     if not header or header[0] != "Band" or not set(header[1:]) <= LABEL_SET | {"null"}:
-        return [f"band table: header {header}"]
+        return errors + [f"band table: header {header}"]
     errors += [f"band table: column {name} appears more than once" for name in repeated(header)]
     names = [name for name, _ in table_rows]
     errors += [f"band table: row {name} appears more than once" for name in repeated(names)]
@@ -467,6 +533,23 @@ def test_label_checks_cover_every_rendered_row_table_and_figure():
             hidden,
             flags=re.M,
         ),
+        # A second figure in a code block, a table cell, with other spacing or case, or
+        # with the other apostrophe also shows a second value.
+        insert_after(
+            text, "- Rows with an owner ruling:", "\n```\nRows with an owner ruling: 9\n```\n"
+        ),
+        insert_after(text, "| null |", "\n| x |\n|---|\n| Rows with an owner ruling: 9 |\n"),
+        insert_after(text, "- Rows with an owner ruling:", "- Rows with an owner ruling : 9\n"),
+        insert_after(text, "- Rows with an owner ruling:", "- rows with an owner ruling: 9\n"),
+        insert_after(text, "- Rows with an owner ruling:", "- Cohen’s kappa: 0.10\n"),
+    ]
+    html_cases = [
+        hidden,
+        insert_after(
+            text,
+            "`final` by containment band:",
+            "\n<table><tr><td>supported</td><td>0</td></tr></table>\n",
+        ),
     ]
     for case in label_cases:
         assert case != text and label_table_errors(case, rows) != []
@@ -474,6 +557,8 @@ def test_label_checks_cover_every_rendered_row_table_and_figure():
         assert case != text and band_table_errors(case, rows) != []
     for case in figure_cases:
         assert case != text and figure_errors(case, rows) != []
+    for case in html_cases:
+        assert case != text and labels_html_errors(case) != []
 
 
 def test_table_checks_reject_an_extra_row_placed_before_the_correct_one():

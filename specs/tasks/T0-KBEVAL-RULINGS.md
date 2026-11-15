@@ -116,3 +116,42 @@ R3 (codex, decision 1/2) blocked `2e4c87b` with one finding: `table()` stored ro
 | exact copy of the `low` row | `row low appears more than once` |
 | band header with `supported` twice | `column supported appears more than once` |
 | second `Rows with an owner ruling` line | `Rows with an owner ruling: stated 2 times` |
+
+## Attempt 3 evidence
+R3 (codex, decision 2/4) blocked `a055f82` with three findings of the same kind: the hand-written reader missed table rows written without their opening pipe, read only the first table with a given header, and counted figures only in `- ` bullets. RED `cb81f2b`, GREEN: the commit after it. Report and data unchanged from attempt 1.
+
+### Commits
+- `cb81f2b` RED: the checks take the whole report; `test_label_checks_cover_every_rendered_row_table_and_figure` builds the reviewer's cases. Under the attempt-2 helpers, 5 of its 6 visible cases pass (row without opening pipe in either table, a second `Label` table, a figure in a `*` bullet, a figure with an escaped colon); only a second `Band` table placed first is caught. Result: 1 failed, 24 passed, `AssertionError`.
+- GREEN: the report is parsed once by markdown-it-py (`commonmark` plus the GFM `table` rule; installed in CI through `rich`, which `fastmcp` requires), following lesson 4 of `docs/LESSONS.md` (check a hand-written CommonMark reader against a reference parser). Tables come from the parser's `table` tokens, with the `## ` section each sits under; the figures come from the rendered text of every inline run, table cell, code block and raw-HTML block.
+  - `matching_tables`: exactly one table with header `Label` and one with `Band`, both in `Labels`, and the rows of every matching table are compared.
+  - `figure_errors`: each of the four figures renders exactly once (any spacing or case, either apostrophe, optional `:` or `=`) with the value recomputed from `labels.jsonl`; this replaces the dash-bullet count of attempt 2.
+  - `labels_html_errors`: no raw HTML in the `Labels` section, since it could show a figure or table the parser does not read as one.
+  - 26 passed; the whole bench suite (`python -m pytest bench/knowledge/tests -q`): 369 passed, 4 skipped.
+
+### Findings
+| Finding | Fix | Tests |
+|---|---|---|
+| 1 row without an opening pipe after the last row | rows read from the parser's table tokens | `test_label_checks_cover_every_rendered_row_table_and_figure` (label and band cases) |
+| 2 second table with the same header | `matching_tables`: exactly one per header, rows of every match compared | same test (label and band cases) |
+| 3 figure in another bullet form | `figure_errors` reads the rendered text, independent of block syntax | same test (`*` bullet, escaped colon, code block, table cell, spacing, case, apostrophe, HTML comment) |
+
+### Acceptance
+| Item | Proving test or command | Result |
+|---|---|---|
+| 1 [R1] | `git diff origin/main...HEAD -- bench/knowledge/labels.jsonl` (3 lines; `final` and `ownerRuled` only); `test_labels_are_in_the_closed_set_and_final_follows_the_rule` | pass |
+| 2 [R2] [R4] | `test_labels_section_renders_each_figure_once_with_its_recomputed_value`, `test_labels_section_states_owner_ruled_count_recomputed_from_labels`, `test_labels_section_states_agreement_kappa_and_null_count_recomputed_from_labels` | pass |
+| 3 [R2] [R4] | `test_label_count_table_equals_counts_recomputed_from_labels`, `test_final_by_band_table_equals_counts_recomputed_from_labels`, `test_table_checks_reject_an_extra_row_placed_before_the_correct_one`, `test_label_checks_cover_every_rendered_row_table_and_figure`, `test_labels_section_holds_no_raw_html` | pass |
+| 4 [R4] | `test_every_number_in_the_report_comes_from_summary_or_labels` | pass |
+| 5 [R3] [R5] | reviewer; both changelog entries; `git diff --numstat origin/main...HEAD -- src/kb templates tests pyproject.toml requirements.txt bench/knowledge/summary.json` | empty; for review |
+
+### Probes on the GREEN helpers (each a one-change copy of the committed report; none committed)
+| Probe | Reported as |
+|---|---|
+| `supported` row without opening pipe after the `null` row | `label table: row supported appears more than once` |
+| second `Label` table | `label table: 2 tables with header 'Label'` |
+| `low` row without opening pipe after the `low` row | `band table: row low appears more than once` |
+| second `Band` table after the first | `band table: 2 tables with header 'Band'` |
+| `Label` table inside a blockquote | `label table: 2 tables with header 'Label'` |
+| second owner figure as `*` bullet, with `\:`, in a code block, in an HTML block, with ` : ` | `Rows with an owner ruling: rendered ['3', ...], expected ['3']` |
+| second kappa with a curly apostrophe | `Cohen's kappa: rendered ['0.89', '0.10'], expected ['0.89']` |
+| HTML table in `Labels` | `Labels section holds 1 pieces of raw HTML` |
