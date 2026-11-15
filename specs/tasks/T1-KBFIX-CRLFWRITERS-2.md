@@ -109,3 +109,26 @@ ruff check src/ tests/ && python -m pytest tests/test_kbfix_crlf_writers.py test
   - `"## Context  \r\nRises.\r\n\r\n"` with an existing `## Context`: `rstrip("\n")` stops at the CR, so pre-card and `49bc779` keep a blank line before `## References`; `fc1c3db` does not.
   - `"Rises.\r"` with no `## Context`: `f"{ctx}\n\n"` joins the CR and the LF into one line end in pre-card and `49bc779`; `fc1c3db` writes one more blank line.
   In each case `fc1c3db` writes what the same context with LF ends writes. Any fix of F1 changes the first case, because there the old output depends on the header pattern seeing the CR. R4 (pre-card bytes on LF pages) and the forbid (no pattern on text that holds CR) conflict for a context holding a CR next to a line end.
+
+#### Attempt 2, resumed after ruling `2271dd9` (option A: keep `fc1c3db`; R4 qualified, R7 and acceptance 9 added)
+
+- Base sync: merge `9efb92a` (origin/main `2271dd9`; card only, no conflict).
+- R7, extraction search: RED `1161f61` (the recorder test now runs `_update_existing_page` with a direct context and with an extraction whose `core_argument` and `key_claims` hold CR, on CRLF pages with and without `## Context`): exit 1, `2 failed, 23 passed`; `[extraction-context]` and `[extraction-no-context]` fail because `_extract_entity_context`'s name search receives the values with their CRs. Fix `0217e00`: the search runs on `_to_lf(val.lower())` / `_to_lf(claim.lower())`, and the appended value is unchanged, so new-page output (the other caller, `pipeline.py` new-page path) is the same.
+- Acceptance 9 tests `d6c3142`: `test_context_header_ending_in_lone_cr_adds_no_second_header` and `test_context_holding_cr_writes_what_its_lf_form_writes[header-lone-cr, trailing-crlf-blank, trailing-lone-cr] x [lf, crlf]`. Against `49bc779`'s src (`-o pythonpath=<49bc779 src copy>`): `7 failed`; on `0217e00`: `7 passed`.
+- Docs `e0916ea`: R7 wording in `architecture.md`, `CHANGELOG.md`, `CHANGELOG-history.md` (with the F1 design history); `CLAUDE.md` State `3940 tests across 224 test files`; `scripts/verify_docs.py`: collected 3940, files 224, `OK - docs in sync`.
+- DoD (`e0916ea`, Windows, main checkout `.venv`, `dod_command` unchanged since `49bc779`): exit 0. `ruff check src/ tests/`: `All checks passed!`; pytest: `663 passed, 4 skipped, 3 warnings in 52.47s`; `6 snapshots passed.`
+- Full suite (`e0916ea`, `python -m pytest -q -p no:cacheprovider`, nothing deselected): exit 0, `3894 passed, 29 skipped, 17 xfailed, 54 warnings in 241.06s` (3940 collected).
+- `git diff --numstat origin/main...HEAD` (`e0916ea`, origin/main `2271dd9`): `14 0 CHANGELOG-history.md`, `1 0 CHANGELOG.md`, `1 1 CLAUDE.md`, `1 1 docs/reference/architecture.md`, `37 0 specs/tasks/T1-KBFIX-CRLFWRITERS-2.md`, `71 0 specs/tasks/T1-KBFIX-CRLFWRITERS.md`, `10 2 src/kb/ingest/evidence.py`, `27 11 src/kb/ingest/pipeline.py`, `5 3 src/kb/lint/checks/dead_links.py`, `2 2 tests/test_ingest.py`, `564 0 tests/test_kbfix_crlf_writers.py`, `1 1 tests/test_lint.py`.
+- Not changed: the pattern string of the name search includes `re.escape(name.lower())`; a `name` holding CR would still reach `re`. Entity names come from extraction and none of the probed inputs holds CR; normalising `name` would change which pages match for such a name.
+
+| Acceptance | Test or command | Status |
+|---|---|---|
+| 1 | `test_reingest_with_context_keeps_crlf_and_matches_lf_copy` | pass |
+| 2 | `test_fresh_references_block_keeps_crlf[no-references, references-header-not-matched]`, `test_context_inserted_before_references_keeps_crlf` | pass |
+| 3 | `test_evidence_append_keeps_crlf_in_each_branch[sentinel-in-section, header-without-sentinel, no-header]` | pass |
+| 4 | `test_dead_links_fix_keeps_crlf_and_leaves_clean_page_unwritten`, `test_dead_link_only_inside_code_leaves_crlf_page_unwritten` | pass |
+| 5 | `test_mixed_page_keeps_the_lf_of_an_unchanged_line[ingest-body, evidence, dead-links]`, `test_lf_page_is_written_with_the_same_bytes_as_before[ingest-body, evidence, dead-links]` | pass |
+| 6 | DoD exit 0; full suite exit 0; existing-test edits limited to `tests/test_ingest.py` (`counting_read` spy) and `tests/test_lint.py` (one expected-value line) | pass |
+| 7 | `architecture.md` (three writers next to the linker, inserted-CR rule); one entry each in `CHANGELOG.md` and `CHANGELOG-history.md` under T1-KBFIX-CRLFWRITERS naming T1-KBFIX-CRLFWRITERS-2; `CLAUDE.md` State = `verify_docs.py` (3940 / 224) | pass (reviewer to verify) |
+| 8 | `test_cr_in_inserted_context_is_written_crlf_on_crlf_page[extraction, direct-ctx]`, `test_cr_in_inserted_context_on_lf_page_writes_the_bytes_of_before[extraction, direct-ctx]`, `test_cr_in_evidence_action_is_written_crlf_on_crlf_page`, `test_cr_in_evidence_action_on_lf_page_writes_the_bytes_of_before` | pass |
+| 9 | `test_body_writer_patterns_never_see_a_cr[direct-ctx, extraction] x [context, no-context]`, `test_context_header_ending_in_lone_cr_adds_no_second_header`, `test_context_holding_cr_writes_what_its_lf_form_writes[3 shapes x lf, crlf]` | pass |
