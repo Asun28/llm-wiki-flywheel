@@ -32,12 +32,15 @@ def restore_line_ends(text: str, original: str, ends: list[str]) -> str:
 
     ``original`` and ``ends`` come from `read_page_text`: one entry of ``ends`` per
     LF of ``original``. If ``ends`` holds no CRLF, ``text`` is returned unchanged.
-    Otherwise a line diff of ``original`` and ``text`` decides each line's end: a
-    line equal to an original line keeps that line's end; within one replaced run,
-    lines pair in order and each keeps the end of the line it replaced; every other
-    line that has an end (an added line, or an original last line that had none)
-    gets the page's most-used end, LF on a tie. The last line of ``text`` gets no
-    end, so a text with no final line end keeps none.
+    Otherwise the common leading and trailing lines of ``original`` and ``text`` keep
+    their ends, and a line diff (`difflib.SequenceMatcher`) of the lines between
+    them decides the rest: a line equal to an original line keeps that line's end;
+    the lines of one replaced run pair from the end of the run and each keeps the
+    end of the line it replaced, so a line joined from two keeps the second one's
+    end; every other line that has an end (an added line, a leading extra line of a
+    replaced run, or an original last line that had none) gets the page's most-used
+    end, LF on a tie. The last line of ``text`` gets no end, so a text with no final
+    line end keeps none.
     """
     if _CRLF not in ends:
         return text
@@ -46,15 +49,31 @@ def restore_line_ends(text: str, original: str, ends: list[str]) -> str:
 
     old_lines = original.split(_LF)
     new_lines = text.split(_LF)
-    new_ends = [most_used] * (len(new_lines) - 1)
-    matcher = difflib.SequenceMatcher(None, old_lines, new_lines, autojunk=False)
+    shorter = min(len(old_lines), len(new_lines))
+    lead = 0
+    while lead < shorter and old_lines[lead] == new_lines[lead]:
+        lead += 1
+    trail = 0
+    while trail < shorter - lead and old_lines[-1 - trail] == new_lines[-1 - trail]:
+        trail += 1
+    # (old index, new index) of every line that keeps an original line's end.
+    pairs = [(i, i) for i in range(lead)]
+    pairs += [(len(old_lines) - 1 - k, len(new_lines) - 1 - k) for k in range(trail)]
+    matcher = difflib.SequenceMatcher(
+        None,
+        old_lines[lead : len(old_lines) - trail],
+        new_lines[lead : len(new_lines) - trail],
+        autojunk=False,
+    )
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-        if tag not in ("equal", "replace"):
-            continue
-        for k in range(min(i2 - i1, j2 - j1)):
-            old_i, new_j = i1 + k, j1 + k
-            # The last line of either side has no end.
-            if old_i < len(ends) and new_j < len(new_ends):
-                new_ends[new_j] = ends[old_i]
+        if tag in ("equal", "replace"):
+            for k in range(min(i2 - i1, j2 - j1)):
+                pairs.append((lead + i2 - 1 - k, lead + j2 - 1 - k))
+
+    new_ends = [most_used] * (len(new_lines) - 1)
+    for old_i, new_j in pairs:
+        # The last line of either side has no end.
+        if old_i < len(ends) and new_j < len(new_ends):
+            new_ends[new_j] = ends[old_i]
     body = "".join(line + end for line, end in zip(new_lines, new_ends, strict=False))
     return body + new_lines[-1]
