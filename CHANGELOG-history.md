@@ -17,6 +17,15 @@ Purpose: Full per-cycle bullet-level detail archive. CHANGELOG.md is the compact
 
 > Detailed per-cycle entries live here. High-level summaries remain in [CHANGELOG.md](CHANGELOG.md); full bullet-level detail belongs here.
 
+### 2026-11-15 — T0-KBEVAL-RULINGS (owner rulings on the label disagreements)
+
+**Theme:** record the owner's rulings on the three rows of the trace label sample where the two labellers differ, which T1-KBEVAL-BASELINE left with a null `final`.
+
+- **`bench/knowledge/labels.jsonl`.** Three rows edited, each on `final` (null to `partly-supported`) and `ownerRuled` (false to true) only: `summaries/llm-knowledge-bases` sentence 1, `concepts/resolution-state` sentence 3, `concepts/progressive-disclosure` sentence 0. The owner ruled in session after reading each sentence beside its source passage, under the label definition both labellers were given (a claim, qualifier or generalisation the source does not state makes a sentence `partly-supported`). The rulings and reasons are in `specs/tasks/T0-KBEVAL-RULINGS.md`.
+- **`docs/knowledge-baseline.md`.** `Labels` section: `Rows with a null final` 3 to 0, new figure `Rows with an owner ruling`, `final` counts and the `final`-by-band table updated, text on what `final` means now; one sentence of `What these numbers do not show` reworded. Agreement (0.95) and kappa (0.89) compare labelA with labelB and do not change.
+- **`bench/knowledge/tests/test_baseline.py`.** New checks: the owner-ruling figure, every cell of the label-count table and of the `final`-by-band table equal counts recomputed from `labels.jsonl` (each band row must sum to that band's rows); the number scan allows the owner-ruling count.
+- **Tests:** 3785 unchanged; `tests/` is not touched.
+
 ### 2026-11-15 — T1-KBEVAL-BASELINE (knowledge-layer baseline, Phase 0)
 
 **Theme:** report the Phase 0 numbers of the knowledge bench (`bench/knowledge/`) from one run on the owner's `wiki/` and `raw/`, with the records and the labels behind them, and change no behaviour.

@@ -121,23 +121,27 @@ Each row of `bench/knowledge/labels.jsonl` carries two labels from the closed se
 
 - labelA: Claude (the implementer of this card), after reading the sentence and the text of the page's listed sources.
 - labelB: `gpt-6-astra` through `codex exec --sandbox read-only`, given only the sentence, the text of the page's listed sources and the label definitions, one call per distinct source list, in an empty working directory. It was not shown labelA. The prompts and raw outputs are kept under `_local/knowledge/labelB/`.
-- `final` is the shared label where the two agree and null otherwise. No row has an owner ruling yet.
+- `final` is the shared label where the two agree. Where they differ, `final` is the owner's ruling and `ownerRuled` is true; the rule leaves `final` null on a row the owner has not ruled on, and no row is in that state.
+- The owner ruled on every row where the labels differ (card `T0-KBEVAL-RULINGS`), after reading each sentence beside the source passage it restates. Every ruling is `partly-supported`, by the label definition both labellers were given: a sentence with a claim, qualifier or generalisation that the source does not state is `partly-supported`. The owner did not review rows where the labels agree.
 
 Figures over all rows of `labels.jsonl` (n = 56):
 
 - Raw agreement rate: 0.95
 - Cohen's kappa: 0.89
-- Rows with a null final: 3
+- Rows with a null final: 0
+- Rows with an owner ruling: 3
+
+Raw agreement and kappa compare labelA with labelB, so the rulings do not change them.
 
 Label counts:
 
 | Label | labelA | labelB | final |
 |---|---|---|---|
 | supported | 38 | 37 | 36 |
-| partly-supported | 3 | 4 | 2 |
+| partly-supported | 3 | 4 | 5 |
 | unsupported | 0 | 0 | 0 |
 | not-a-claim | 15 | 15 | 15 |
-| null | | | 3 |
+| null | | | 0 |
 
 `final` by containment band:
 
@@ -145,7 +149,7 @@ Label counts:
 |---|---|---|---|---|
 | high | 13 | 0 | 0 | 0 |
 | mid | 14 | 0 | 4 | 0 |
-| low | 9 | 2 | 11 | 3 |
+| low | 9 | 5 | 11 | 0 |
 
 Every disagreement is between `supported` and `partly-supported`. No sentence was labelled `unsupported` by either labeller. Every `not-a-claim` row is a link list or a line that names the page's source file.
 
@@ -209,7 +213,7 @@ Verdict: confirmed
 
 ## What these numbers do not show
 
-- Support. The containment bands measure copied wording, not whether a source supports a sentence. The labels are from two models, not from the owner, on the sample sentences of one corpus; the rows counted under `Rows with a null final` have no `final` until the owner rules. No verifier was calibrated, so I2 has labels and no measured verifier accuracy.
+- Support. The containment bands measure copied wording, not whether a source supports a sentence. The labels are from two models on the sample sentences of one corpus. The owner ruled only on the rows where the two differ (`Rows with an owner ruling`) and did not review the rows where they agree. No verifier was calibrated, so I2 has labels and no measured verifier accuracy.
 - Correctness of query answers. The citations probe uses a scripted answer, so it shows how the query path treats citations, not how often a model cites a page outside its context or whether a cited page supports the sentence that cites it.
 - The vector branch. `retrieval.hybrid` is unmeasured (issue #154), so nothing here says how the embedding model handles Chinese or cross-language queries.
 - Cache-key coverage. `rebuild.scan` is unmeasured because `ingest_source` writes no `_template` keys, so nothing here says whether a model-id, template or source change is seen by the changed-source scan.
