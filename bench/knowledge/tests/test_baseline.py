@@ -330,30 +330,75 @@ def test_labels_section_states_owner_ruled_count_recomputed_from_labels():
     assert int(stated.group(1)) == sum(row["ownerRuled"] is True for row in rows)
 
 
-def test_label_count_table_equals_counts_recomputed_from_labels():
-    rows = label_rows()
-    header, cells = table(sections(report()).get("Labels", ""), "Label")
-    assert header == ["Label", "labelA", "labelB", "final"]
-    assert set(cells) == LABEL_SET | {"null"}
+def label_table_errors(body: str, rows: list[dict]) -> list[str]:
+    """One message per way the label-count table differs from the counts of `rows`."""
+    header, cells = table(body, "Label")
+    errors = []
+    if header != ["Label", "labelA", "labelB", "final"]:
+        errors.append(f"label table: header {header}")
+    if set(cells) != LABEL_SET | {"null"}:
+        errors.append(f"label table: rows {sorted(cells)}")
     counts = {key: Counter(row[key] for row in rows) for key in ("labelA", "labelB", "final")}
     for label in sorted(LABEL_SET):
         expected = [str(counts[key][label]) for key in ("labelA", "labelB", "final")]
-        assert cells[label] == expected, label
-    assert cells["null"] == ["", "", str(counts["final"][None])]
+        if cells.get(label) != expected:
+            errors.append(f"label table: row {label} is {cells.get(label)}, expected {expected}")
+    if cells.get("null") != ["", "", str(counts["final"][None])]:
+        errors.append(f"label table: row null is {cells.get('null')}")
+    return errors
+
+
+def band_table_errors(body: str, rows: list[dict]) -> list[str]:
+    """One message per way the `final`-by-band table differs from the counts of `rows`."""
+    header, cells = table(body, "Band")
+    errors = []
+    if not header or header[0] != "Band" or not set(header[1:]) <= LABEL_SET | {"null"}:
+        return [f"band table: header {header}"]
+    if set(cells) != {row["band"] for row in rows}:
+        errors.append(f"band table: rows {sorted(cells)}")
+    by_band = Counter((row["band"], row["final"]) for row in rows)
+    for band, values in cells.items():
+        if len(values) != len(header) - 1:
+            errors.append(f"band table: row {band} has {len(values)} cells")
+            continue
+        for column, value in zip(header[1:], values, strict=True):
+            expected = str(by_band[(band, None if column == "null" else column)])
+            if value != expected:
+                errors.append(f"band table: {band}/{column} is {value}, expected {expected}")
+        # A band row sums to every row of that band, so no column was left out.
+        total = sum(int(v) for v in values if v.isdigit())
+        if total != sum(row["band"] == band for row in rows):
+            errors.append(f"band table: row {band} sums to {total}")
+    return errors
+
+
+def labels_body() -> str:
+    return sections(report()).get("Labels", "")
+
+
+def test_label_count_table_equals_counts_recomputed_from_labels():
+    assert label_table_errors(labels_body(), label_rows()) == []
 
 
 def test_final_by_band_table_equals_counts_recomputed_from_labels():
-    rows = label_rows()
-    header, cells = table(sections(report()).get("Labels", ""), "Band")
-    assert header[0] == "Band" and set(header[1:]) <= LABEL_SET | {"null"}
-    assert set(cells) == {row["band"] for row in rows}
-    by_band = Counter((row["band"], row["final"]) for row in rows)
-    for band, values in cells.items():
-        for column, value in zip(header[1:], values, strict=True):
-            final = None if column == "null" else column
-            assert value == str(by_band[(band, final)]), (band, column)
-        # A band row sums to every row of that band, so no column was left out.
-        assert sum(int(v) for v in values) == sum(row["band"] == band for row in rows), band
+    assert band_table_errors(labels_body(), label_rows()) == []
+
+
+def test_table_checks_reject_an_extra_row_placed_before_the_correct_one():
+    # R3 decision 1 of T0-KBEVAL-RULINGS: a wrong row ahead of the right one with the
+    # same name must not pass, nor may an exact copy of a correct row.
+    rows, body = label_rows(), labels_body()
+    once = {"count": 1, "flags": re.M}
+    wrong_label = re.sub(r"^\| supported \|", "| supported | 0 | 0 | 0 |\n\\g<0>", body, **once)
+    wrong_band = re.sub(r"^\| low \|", "| low | 0 | 0 | 0 | 0 |\n\\g<0>", body, **once)
+    copy_label = re.sub(r"^(\| supported \|.*\n)", r"\1\1", body, **once)
+    copy_band = re.sub(r"^(\| low \|.*\n)", r"\1\1", body, **once)
+    assert wrong_label != body and wrong_band != body
+    assert copy_label != body and copy_band != body
+    assert label_table_errors(wrong_label, rows) != []
+    assert band_table_errors(wrong_band, rows) != []
+    assert label_table_errors(copy_label, rows) != []
+    assert band_table_errors(copy_band, rows) != []
 
 
 # -- forbid: no number in the report from outside summary.json or labels.jsonl ----
