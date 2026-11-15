@@ -1,7 +1,7 @@
 ---
 id: T0-KBFIX-MASKREDOS
 title: "`_CODE_MASK_RE` scans an unclosed markdown link or image opener in linear time and matches the same spans as before (#167)"
-status: todo
+status: merged
 branch: T0-KBFIX-MASKREDOS
 worktree: D:\wt\llm-wiki-flywheel\T0-KBFIX-MASKREDOS
 allow_paths:
