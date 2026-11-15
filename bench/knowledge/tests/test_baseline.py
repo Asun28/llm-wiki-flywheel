@@ -303,8 +303,9 @@ def test_labels_section_states_agreement_kappa_and_null_count_recomputed_from_la
 # -- T0-KBEVAL-RULINGS acceptance 2 and 3 [R2] [R4] ------------------------------
 
 
-def table(body: str, first_header: str) -> tuple[list[str], dict[str, list[str]]]:
-    """Header cells and {first cell: other cells} of the table whose header starts so."""
+def table(body: str, first_header: str) -> tuple[list[str], list[tuple[str, list[str]]]]:
+    """Header cells and every (first cell, other cells) row, in order and with any
+    repeated name kept, of the table whose header starts with `first_header`."""
     lines = body.splitlines()
     for i, line in enumerate(lines):
         if not line.startswith("|"):
@@ -312,14 +313,49 @@ def table(body: str, first_header: str) -> tuple[list[str], dict[str, list[str]]
         header = [cell.strip() for cell in line.strip().strip("|").split("|")]
         if header[0] != first_header:
             continue
-        rows = {}
+        rows = []
         for row_line in lines[i + 2 :]:
             if not row_line.startswith("|"):
                 break
             cells = [cell.strip() for cell in row_line.strip().strip("|").split("|")]
-            rows[cells[0]] = cells[1:]
+            rows.append((cells[0], cells[1:]))
         return header, rows
-    return [], {}
+    return [], []
+
+
+def repeated(names: list[str]) -> list[str]:
+    return sorted(name for name, n in Counter(names).items() if n > 1)
+
+
+FIGURES = (
+    "Raw agreement rate",
+    "Cohen's kappa",
+    "Rows with a null final",
+    "Rows with an owner ruling",
+)
+
+
+def figure_errors(body: str) -> list[str]:
+    """Each Labels figure must be stated once: the checks read the first one only."""
+    errors = []
+    for name in FIGURES:
+        found = len(re.findall(rf"^- {re.escape(name)}: ", body, flags=re.MULTILINE))
+        if found != 1:
+            errors.append(f"{name}: stated {found} times")
+    return errors
+
+
+def test_labels_section_states_each_figure_once():
+    body = sections(report()).get("Labels", "")
+    assert figure_errors(body) == []
+    doubled = re.sub(
+        r"^(- Rows with an owner ruling: .*\n)",
+        r"\1- Rows with an owner ruling: 2\n",
+        body,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    assert doubled != body and figure_errors(doubled) != []
 
 
 def test_labels_section_states_owner_ruled_count_recomputed_from_labels():
@@ -332,32 +368,40 @@ def test_labels_section_states_owner_ruled_count_recomputed_from_labels():
 
 def label_table_errors(body: str, rows: list[dict]) -> list[str]:
     """One message per way the label-count table differs from the counts of `rows`."""
-    header, cells = table(body, "Label")
+    header, table_rows = table(body, "Label")
     errors = []
     if header != ["Label", "labelA", "labelB", "final"]:
         errors.append(f"label table: header {header}")
-    if set(cells) != LABEL_SET | {"null"}:
-        errors.append(f"label table: rows {sorted(cells)}")
+    names = [name for name, _ in table_rows]
+    errors += [f"label table: row {name} appears more than once" for name in repeated(names)]
+    if set(names) != LABEL_SET | {"null"}:
+        errors.append(f"label table: rows {sorted(names)}")
     counts = {key: Counter(row[key] for row in rows) for key in ("labelA", "labelB", "final")}
-    for label in sorted(LABEL_SET):
-        expected = [str(counts[key][label]) for key in ("labelA", "labelB", "final")]
-        if cells.get(label) != expected:
-            errors.append(f"label table: row {label} is {cells.get(label)}, expected {expected}")
-    if cells.get("null") != ["", "", str(counts["final"][None])]:
-        errors.append(f"label table: row null is {cells.get('null')}")
+    for name, cells in table_rows:
+        if name in LABEL_SET:
+            expected = [str(counts[key][name]) for key in ("labelA", "labelB", "final")]
+        elif name == "null":
+            expected = ["", "", str(counts["final"][None])]
+        else:
+            continue
+        if cells != expected:
+            errors.append(f"label table: row {name} is {cells}, expected {expected}")
     return errors
 
 
 def band_table_errors(body: str, rows: list[dict]) -> list[str]:
     """One message per way the `final`-by-band table differs from the counts of `rows`."""
-    header, cells = table(body, "Band")
+    header, table_rows = table(body, "Band")
     errors = []
     if not header or header[0] != "Band" or not set(header[1:]) <= LABEL_SET | {"null"}:
         return [f"band table: header {header}"]
-    if set(cells) != {row["band"] for row in rows}:
-        errors.append(f"band table: rows {sorted(cells)}")
+    errors += [f"band table: column {name} appears more than once" for name in repeated(header)]
+    names = [name for name, _ in table_rows]
+    errors += [f"band table: row {name} appears more than once" for name in repeated(names)]
+    if set(names) != {row["band"] for row in rows}:
+        errors.append(f"band table: rows {sorted(names)}")
     by_band = Counter((row["band"], row["final"]) for row in rows)
-    for band, values in cells.items():
+    for band, values in table_rows:
         if len(values) != len(header) - 1:
             errors.append(f"band table: row {band} has {len(values)} cells")
             continue

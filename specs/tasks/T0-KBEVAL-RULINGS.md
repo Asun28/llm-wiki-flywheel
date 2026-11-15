@@ -84,3 +84,35 @@ Attempt 1. RED `29f8555`, GREEN `05010c9`. Tests: `bench/knowledge/tests/test_ba
 | M2 `Rows with an owner ruling` 3 to 2 | `test_labels_section_states_owner_ruled_count_recomputed_from_labels` |
 | M3 label table `partly-supported` final 5 to 6 | `test_label_count_table_equals_counts_recomputed_from_labels` |
 | M4 band row `mid` deleted | `test_final_by_band_table_equals_counts_recomputed_from_labels` |
+
+## Attempt 2 evidence
+R3 (codex, decision 1/2) blocked `2e4c87b` with one finding: `table()` stored rows in a dict, so a second row with the same name overwrote the first, and a wrong `supported` row (or an all-zero `low` row) placed before the correct one passed every test. RED `394c9b8`, GREEN: the commit after it. Report and data unchanged from attempt 1.
+
+### Commits
+- `394c9b8` RED: the two table checks moved into `label_table_errors` and `band_table_errors` with the attempt-1 behaviour (dict, last row wins), plus `test_table_checks_reject_an_extra_row_placed_before_the_correct_one`, which inserts a wrong row and an exact copy before the correct row in each table. Result: 1 failed, 22 passed; the failure is `assert [] != []` (the wrong `supported` row passed).
+- GREEN: `table()` returns every row in order as (name, cells) with repeated names kept; both checks report a repeated row name (and the band check a repeated column), and compare every row, so a wrong row is reported even where it is not repeated. Also `test_labels_section_states_each_figure_once`: the four Labels figures are each read with `re.search`, which takes the first match, so a second line with another value would pass the same way; the test requires each figure line exactly once and checks that a doubled `Rows with an owner ruling` line is reported. 24 passed.
+
+### Findings
+| Finding | Fix | Tests |
+|---|---|---|
+| 1 duplicate-table-rows-unchecked | `table()` keeps every row; `repeated()` names repeated rows and columns; every row is compared with its expected counts | `test_table_checks_reject_an_extra_row_placed_before_the_correct_one`, `test_label_count_table_equals_counts_recomputed_from_labels`, `test_final_by_band_table_equals_counts_recomputed_from_labels` |
+| same class, figures | each Labels figure must be stated once | `test_labels_section_states_each_figure_once` |
+
+### Acceptance
+| Item | Proving test or command | Result |
+|---|---|---|
+| 1 [R1] | `git diff origin/main...HEAD -- bench/knowledge/labels.jsonl` (3 lines; `final` and `ownerRuled` only); `test_labels_are_in_the_closed_set_and_final_follows_the_rule` | pass |
+| 2 [R2] [R4] | `test_labels_section_states_owner_ruled_count_recomputed_from_labels`, `test_labels_section_states_agreement_kappa_and_null_count_recomputed_from_labels`, `test_labels_section_states_each_figure_once` | pass |
+| 3 [R2] [R4] | `test_label_count_table_equals_counts_recomputed_from_labels`, `test_final_by_band_table_equals_counts_recomputed_from_labels`, `test_table_checks_reject_an_extra_row_placed_before_the_correct_one` | pass |
+| 4 [R4] | `test_every_number_in_the_report_comes_from_summary_or_labels` | pass |
+| 5 [R3] [R5] | reviewer; both changelog entries; `git diff --numstat origin/main...HEAD -- src/kb templates tests pyproject.toml requirements.txt bench/knowledge/summary.json` | empty; for review |
+
+### Mutation checks on the GREEN tests (each run against the committed report with one change; none committed)
+| Mutation | Reported as |
+|---|---|
+| wrong `supported` row before the correct one | `row supported appears more than once`; `row supported is ['0', '0', '0'], expected ['38', '37', '36']` |
+| exact copy of the `supported` row | `row supported appears more than once` |
+| all-zero `low` row before the correct one | `row low appears more than once`; `low/supported is 0, expected 9` |
+| exact copy of the `low` row | `row low appears more than once` |
+| band header with `supported` twice | `column supported appears more than once` |
+| second `Rows with an owner ruling` line | `Rows with an owner ruling: stated 2 times` |
