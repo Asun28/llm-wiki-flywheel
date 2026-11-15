@@ -13,6 +13,10 @@ in what order, how many times) are unchanged.
 Test strategy: call-order spies per cycle-17 L2 — do NOT simulate
 concurrency. The locked-RMW invariant is testable by spying on the sequence
 of read_text → lock_enter → read_text → atomic_text_write → lock_exit.
+
+T0-KBFIX-CRLF (#168): the linker reads pages through `Path.read_bytes` (no
+newline translation), so the read spies patch `Path.read_bytes`; the event
+names and assertions are unchanged.
 """
 
 from __future__ import annotations
@@ -112,12 +116,12 @@ def test_inject_wikilinks_sequence_order(tmp_wiki: Path, monkeypatch) -> None:
             if path == match_page:
                 events.append("lock_exit")
 
-    real_read_text = Path.read_text
+    real_read_bytes = Path.read_bytes
 
-    def spy_read_text(self, *a, **kw):
+    def spy_read_bytes(self, *a, **kw):
         if self == match_page:
             events.append("read_text")
-        return real_read_text(self, *a, **kw)
+        return real_read_bytes(self, *a, **kw)
 
     real_atomic_write = linker.atomic_text_write
 
@@ -127,7 +131,7 @@ def test_inject_wikilinks_sequence_order(tmp_wiki: Path, monkeypatch) -> None:
         return real_atomic_write(content, path)
 
     monkeypatch.setattr(linker, "page_lock", spy_file_lock)
-    monkeypatch.setattr(Path, "read_text", spy_read_text)
+    monkeypatch.setattr(Path, "read_bytes", spy_read_bytes)
     monkeypatch.setattr(linker, "atomic_text_write", spy_atomic_write)
 
     linker.inject_wikilinks(target_title, target_pid, wiki_dir=tmp_wiki)
@@ -159,7 +163,7 @@ def test_inject_wikilinks_toctou_skip(tmp_wiki: Path, monkeypatch) -> None:
     """AC7/AC8 — under-lock re-read sees already-linked; skip atomic_write.
 
     Seeds a match page whose pre-lock read shows the title; a monkeypatched
-    Path.read_text returns DIFFERENT content on the second (under-lock) call —
+    Path.read_bytes returns DIFFERENT content on the second (under-lock) call —
     the replacement was already injected by a hypothetical concurrent linker.
     The production code MUST skip atomic_text_write.
     """
@@ -171,21 +175,21 @@ def test_inject_wikilinks_toctou_skip(tmp_wiki: Path, monkeypatch) -> None:
     match_page = tmp_wiki / "entities" / "matchpage.md"
     _write_page(match_page, "MatchPage", "About RAG here.")
 
-    real_read_text = Path.read_text
+    real_read_bytes = Path.read_bytes
     read_calls = {"count": 0}
 
-    def race_read_text(self, *a, **kw):
+    def race_read_bytes(self, *a, **kw):
         if self == match_page:
             read_calls["count"] += 1
             if read_calls["count"] == 1:
                 # Pre-lock peek — return the original content unchanged.
-                return real_read_text(self, *a, **kw)
+                return real_read_bytes(self, *a, **kw)
             # Under-lock re-read — simulate concurrent linker already linked it.
             return (
-                "---\ntitle: MatchPage\ntype: concept\nsource: []\n---\n\n"
-                "About [[concepts/rag|RAG]] here.\n"
+                b"---\ntitle: MatchPage\ntype: concept\nsource: []\n---\n\n"
+                b"About [[concepts/rag|RAG]] here.\n"
             )
-        return real_read_text(self, *a, **kw)
+        return real_read_bytes(self, *a, **kw)
 
     write_calls: list[Path] = []
 
@@ -193,7 +197,7 @@ def test_inject_wikilinks_toctou_skip(tmp_wiki: Path, monkeypatch) -> None:
         write_calls.append(path)
         # no-op to avoid corrupting the simulation
 
-    monkeypatch.setattr(Path, "read_text", race_read_text)
+    monkeypatch.setattr(Path, "read_bytes", race_read_bytes)
     monkeypatch.setattr(linker, "atomic_text_write", spy_atomic_write)
 
     updated = linker.inject_wikilinks(target_title, target_pid, wiki_dir=tmp_wiki)

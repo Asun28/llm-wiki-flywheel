@@ -60,3 +60,28 @@ ruff check src/ tests/ && python -m pytest tests/test_kbfix_linker_crlf.py tests
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+
+Attempt 2 (repair of R3 decision 1, verdict `.review/T0-KBFIX-CRLF.r3.1.4062d0f0.json` on 71ebdf0). RED for F1/F2 at 4a9b908: 5 failed on 71ebdf0 (`[single-empty-heading]`, `[batch-empty-heading]`, near-bound frontmatter through all three paths), all AssertionError. Repair at 091e4eb: `_read_page` returns the LF text `Path.read_text` gave plus the page's line ends; `_restore_line_ends` restores them around the one splice at both write sites.
+
+| Acceptance item | Proving test or command | Result |
+|---|---|---|
+| 1. CRLF and LF pages byte-identical apart from the link; CRLF page with no final line end; title spanning a CRLF line end; near-bound CRLF frontmatter (F2), three call paths | `test_page_keeps_its_line_endings[*-crlf,*-lf]`, `test_crlf_page_without_a_final_line_end_keeps_its_ends[*]`, `test_title_spanning_a_crlf_line_end_keeps_the_other_ends[*]`, `test_crlf_frontmatter_near_the_bound_stays_unlinked[*]` | pass |
+| 2. LF/CRLF mix kept; lone-CR page written as LF, heading unlinked, body linked | `test_mixed_crlf_and_lf_endings_are_kept[*]`, `test_lone_cr_endings_are_written_as_lf[*]` | pass |
+| 3. CRLF page matching only in `## Hydration`, or only in the empty heading `###` for title `###` (F1): `[]`, bytes and mtime unchanged | `test_crlf_page_matching_only_in_a_heading_is_not_written[*-heading,*-empty-heading]` | pass |
+| 4. four spies moved to `Path.read_bytes`, assertions unchanged | `test_inject_wikilinks_sequence_order`, `test_inject_wikilinks_toctou_skip`, `test_read_budget_bounded`, `test_revert_to_per_target_inject_would_inflate_read_count`; `git diff main -- tests/test_cycle18_linker_lock.py tests/test_cycle19_inject_wikilinks_batch.py` changes only the patched attribute, the real-function and spy names, the race spy's bytes literal and docstrings | pass |
+| 5. architecture bullet, one CHANGELOG / CHANGELOG-history entry each, CLAUDE.md State counts | `python scripts/verify_docs.py`: docs in sync, 3888 tests, 222 files | pass (reviewer-verified) |
+
+| Input form or path of the repair hunks | Covering test | Result |
+|---|---|---|
+| LF page (no CRLF: `_restore_line_ends` returns the text unchanged) | `test_page_keeps_its_line_endings[*-lf]` | pass |
+| CRLF page, final line end present / absent | `test_page_keeps_its_line_endings[*-crlf]`, `test_crlf_page_without_a_final_line_end_keeps_its_ends[*]` | pass |
+| mixed LF and CRLF | `test_mixed_crlf_and_lf_endings_are_kept[*]` | pass |
+| lone CR (read as LF, written as LF) | `test_lone_cr_endings_are_written_as_lf[*]` | pass |
+| splice that removes a line end (title holding a line break) | `test_title_spanning_a_crlf_line_end_keeps_the_other_ends[*]` | pass |
+| empty CRLF heading (F1) / CRLF frontmatter near the bound (F2) | `test_crlf_page_matching_only_in_a_heading_is_not_written[*-empty-heading]`, `test_crlf_frontmatter_near_the_bound_stays_unlinked[*]` | pass |
+| race: locked read differs from the peek | `test_inject_wikilinks_toctou_skip` | pass |
+| `OSError` / `UnicodeDecodeError` from the read | unchanged: both callers keep `except (OSError, UnicodeDecodeError): continue` around `_read_page` | unchanged |
+
+Mutants (not committed; file restored after each): unfixed linker 1f8df97: 18 of 43 fail; attempt-1 linker 71ebdf0: 8 fail; no restore at the single write: 5 fail; no restore at the batch write: 10 fail; restore by line index only (no splice alignment): 3 fail; `inject_wikilinks` peek reverted to `read_text`: 3 fail; batch disk-walk peek reverted to `read_text`: 0 fail (that read only decides whether to lock; the write uses the locked read). Property check (not committed): 20,000 random pages over `a b # space LF CRLF CR` with a random splice; `_restore_line_ends` equals splicing the raw page every time.
