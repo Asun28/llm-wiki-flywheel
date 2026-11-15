@@ -527,3 +527,38 @@ def test_body_writer_patterns_never_see_a_cr(tmp_path, monkeypatch, lines, sourc
 
     assert any("Mentioned in raw/articles/b.md" in s for s in seen)
     assert [s for s in seen if "\r" in s] == []
+
+
+# --- Acceptance 9 [R4] [R7]: a context holding CR writes what its LF form writes ---
+
+
+def test_context_header_ending_in_lone_cr_adds_no_second_header(tmp_path, monkeypatch):
+    monkeypatch.setattr("kb.ingest.evidence.date", _FixedDate)
+    page = _write(tmp_path / "lf" / "bread.md", _page(_LF, _CR_PAGE))
+
+    _update_existing_page(page, _NEW_SOURCE, ctx="## Context\rRises.")
+
+    assert page.read_bytes().count(b"## Context") == 1
+
+
+# The three context shapes whose bytes changed in the attempt-2 differential.
+_CR_SHAPES = {
+    "header-lone-cr": ("## Context\rRises.", _CR_PAGE),
+    "trailing-crlf-blank": ("## Context  \r\nRises.\r\n\r\n", _CR_PAGE),
+    "trailing-lone-cr": ("Rises.\r", _NO_CONTEXT_PAGE),
+}
+
+
+@pytest.mark.parametrize("nl", [_LF, _CRLF], ids=["lf", "crlf"])
+@pytest.mark.parametrize("shape", list(_CR_SHAPES))
+def test_context_holding_cr_writes_what_its_lf_form_writes(tmp_path, monkeypatch, shape, nl):
+    monkeypatch.setattr("kb.ingest.evidence.date", _FixedDate)
+    ctx, lines = _CR_SHAPES[shape]
+    lf_ctx = ctx.replace("\r\n", "\n").replace("\r", "\n")
+    page = _write(tmp_path / "cr" / "bread.md", _page(nl, lines))
+    twin = _write(tmp_path / "lf-ctx" / "bread.md", _page(nl, lines))
+
+    _update_existing_page(page, _NEW_SOURCE, ctx=ctx)
+    _update_existing_page(twin, _NEW_SOURCE, ctx=lf_ctx)
+
+    assert page.read_bytes() == twin.read_bytes()
