@@ -179,5 +179,10 @@ def test_a_5000_line_crlf_page_with_50_edits_restores_in_under_5_seconds():
     result = _restore(CRLF.join(lines) + CRLF, text)
     elapsed = time.perf_counter() - start
 
-    assert result == text.replace(LF, CRLF)
+    expected = text.replace(LF, CRLF)
+    # A plain `==` assert makes pytest diff two 250 KB strings, which outlasts the
+    # suite timeout; report the first differing offset instead.
+    same = result == expected
+    first = next((i for i, pair in enumerate(zip(result, expected)) if pair[0] != pair[1]), None)
+    assert same, f"first difference at offset {first}: {result[first or 0 :][:60]!r}"
     assert elapsed < 5.0, elapsed
