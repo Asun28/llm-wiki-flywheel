@@ -317,9 +317,12 @@ def plain(inline) -> str:
     """Rendered text of an inline token. Raw HTML is left out: it does not show as text."""
     parts = []
     for child in inline.children or []:
-        # An image's `content` is its alt text, which shows when the image does not load.
-        if child.type in ("text", "text_special", "code_inline", "image"):
+        if child.type in ("text", "text_special", "code_inline"):
             parts.append(child.content)
+        elif child.type == "image":
+            # Alt text shows when the image does not load. The image's `content` is the alt
+            # source with its markup; its children are that alt parsed, so render those.
+            parts.append(plain(child))
         elif child.type in ("softbreak", "hardbreak"):
             parts.append("\n")
     return visible("".join(parts))
