@@ -17,6 +17,14 @@ Purpose: Full per-cycle bullet-level detail archive. CHANGELOG.md is the compact
 
 > Detailed per-cycle entries live here. High-level summaries remain in [CHANGELOG.md](CHANGELOG.md); full bullet-level detail belongs here.
 
+### 2026-11-15 — T1-KBFIX-TPLBASE (ingest records the template baseline, #160)
+
+**Theme:** on a wiki built by `ingest_source` alone, `find_changed_sources` listed every source of every ingested type as changed, because only `compile_wiki` wrote `_template/<type>` manifest keys and the scan reads a missing key as a template change.
+
+- **`src/kb/ingest/pipeline.py`.** New `_capture_template_baseline(source_type)` returns `("_template/<source_type>", hash)` from `kb.compile.compiler._template_hashes()` (lazy import, circular otherwise), or `None` when the type has no template or reading the templates raises `OSError` (logged as a WARNING; the ingest continues). `ingest_source` calls it once when the ingest begins, before extraction and page writes, and passes the result to `_commit_ingest_manifest`, which now takes an optional `template_baseline` and applies it with `setdefault` in the same `file_lock(HASH_MANIFEST)` span and the same save as the source hash. An existing `_template/<type>` value is never changed (owner decision on #160), so a pending template change recorded by `compile_wiki` stays pending. The hash is taken at ingest start, not at commit, so a template edited while the ingest runs is recorded as the pre-edit hash and the scan flags the type. A duplicate or failed ingest writes no manifest entry, as before, and so no template key. Lock acquisitions and saves per ingest are unchanged.
+- **`tests/test_kbfix_ingest_template_baseline.py` (new, 5 tests).** Three article ingests with a supplied extraction, then the scan returns `([], [])` and the manifest holds `_template/article` only, equal to `_template_hashes()` (R1-R3). A preset unequal `_template/article` survives a further ingest byte-equal and the scan lists every article source (R2, R4). A spy on `save_manifest` and `file_lock` shows the source hash and the template key in one save under one manifest lock (R1). With `article.yaml` absent from a tmp templates dir, the ingest writes the source hash and no `_template/` key. A template edited inside `_run_ingest_body` leaves the pre-edit hash in the manifest and the scan lists the source.
+- **Tests:** 3793 → 3798 (+5); test files 216 → 217.
+
 ### 2026-11-15 — T1-KBFIX-VECDIM (stored vector dim read from the table declaration, #154)
 
 **Theme:** with sqlite-vec 0.1.9 the vector branch of hybrid search returned [] for every query and logged nothing, so hybrid search ran BM25-only.

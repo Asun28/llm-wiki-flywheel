@@ -408,7 +408,31 @@ def _is_duplicate_content_locked(source_hash: str, source_ref: str) -> bool:
     return False
 
 
-def _commit_ingest_manifest(source_ref: str, source_hash: str) -> None:
+def _capture_template_baseline(source_type: str) -> tuple[str, str] | None:
+    """Return ``("_template/<source_type>", hash)`` for the template as it is NOW.
+
+    T1-KBFIX-TPLBASE (#160). Called when an ingest BEGINS, before extraction and
+    page writes, so the recorded baseline is the template the pages were built
+    from: a template edited while the ingest runs stays visible to
+    ``find_changed_sources``. ``None`` when the type has no template or the
+    templates cannot be read; the ingest then records the source hash alone.
+    """
+    from kb.compile.compiler import _template_hashes
+
+    key = f"_template/{source_type}"
+    try:
+        current = _template_hashes().get(key)
+    except OSError as e:
+        logger.warning("Template baseline not captured for %s: %s", source_type, e)
+        return None
+    return (key, current) if current is not None else None
+
+
+def _commit_ingest_manifest(
+    source_ref: str,
+    source_hash: str,
+    template_baseline: tuple[str, str] | None = None,
+) -> None:
     """Write the bare content hash for ``source_ref`` — the Design C commit.
 
     Called ONCE, as the last durable step of a successful ingest. Writing the
@@ -420,12 +444,20 @@ def _commit_ingest_manifest(source_ref: str, source_hash: str) -> None:
     Held under ``file_lock(HASH_MANIFEST)`` with a re-read so a concurrent writer
     between our load and save is not clobbered — the same RMW discipline the
     reservation used, applied to the single completion write.
+
+    T1-KBFIX-TPLBASE (#160) — ``template_baseline`` (from
+    ``_capture_template_baseline``) is written in the same lock span and save,
+    ONLY when its key is absent: an existing value, written by ``compile_wiki``
+    or an earlier ingest, is never changed, so a template edit it records as
+    pending stays pending.
     """
     from kb.compile.compiler import HASH_MANIFEST, load_manifest, save_manifest
 
     with file_lock(HASH_MANIFEST):
         manifest = load_manifest()
         manifest[source_ref] = source_hash
+        if template_baseline is not None:
+            manifest.setdefault(*template_baseline)
         save_manifest(manifest)
 
 
@@ -1519,6 +1551,8 @@ def ingest_source(
     # read them unconditionally (C33-L2).
     committed = False
     success_emitted = False
+    # T1-KBFIX-TPLBASE — template hash as of ingest start, before extraction.
+    template_baseline = _capture_template_baseline(source_type)
 
     try:
         # Validate caller-provided extractions before the ingest body. In Claude
@@ -1610,7 +1644,7 @@ def ingest_source(
             # now, as the last durable step, and still inside the content lock so
             # a concurrent same-content thread observes it. Everything above can
             # crash without leaving a false "ingested" claim in the manifest.
-            _commit_ingest_manifest(manifest_ref, source_hash)
+            _commit_ingest_manifest(manifest_ref, source_hash, template_baseline)
             # Cycle 86 AC03 — point of no return crossed.
             committed = True
 
