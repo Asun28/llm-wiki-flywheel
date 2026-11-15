@@ -17,6 +17,14 @@ Purpose: Full per-cycle bullet-level detail archive. CHANGELOG.md is the compact
 
 > Detailed per-cycle entries live here. High-level summaries remain in [CHANGELOG.md](CHANGELOG.md); full bullet-level detail belongs here.
 
+### 2026-11-15 — T1-KBFIX-VECDIM (stored vector dim read from the table declaration, #154)
+
+**Theme:** with sqlite-vec 0.1.9 the vector branch of hybrid search returned [] for every query and logged nothing, so hybrid search ran BM25-only.
+
+- **`src/kb/query/embeddings.py`.** `VectorIndex._read_stored_dim` parsed the embedding dim from the `type` column of `PRAGMA table_info(vec_pages)`. sqlite-vec 0.1.9 (SQLite 3.50.4) reports an empty type for the `embedding` column of a `vec0` table, so the dim read 0, and `query` treats 0 as an empty index. The method now reads `SELECT sql FROM sqlite_master WHERE name = 'vec_pages'` and parses `float[N]` from the declaration that `build` writes (`vec0(embedding float[{dim}])`). A missing table returns 0 with no log (R2). A table present with no `float[N]` returns 0 and logs one WARNING per instance naming the db path, gated by the new `_schema_warned` flag (R3). The dim-mismatch WARNING, counters and auto-rebuild are unchanged. Existing index files are read as they are; no rebuild is needed.
+- **`tests/test_kbfix_vector_stored_dim.py` (new, 4 tests, real `sqlite_vec`, no stub).** Build 3 pages of dim 4 and query with one page's vector: that page is the first hit (R1, R4). A real `vec0` table of dim 7: `PRAGMA table_info` reports an empty type and `_read_stored_dim` returns 7 (R1). Missing table: 0 with no WARNING (R2). A `vec_pages` table declared `embedding BLOB`: 0, and two `query` calls on one instance log exactly one WARNING holding the db path (R3).
+- **Tests:** 3785 → 3789 (+4); test files 215 → 216.
+
 ### 2026-11-15 — T0-KBEVAL-RULINGS (owner rulings on the label disagreements)
 
 **Theme:** record the owner's rulings on the three rows of the trace label sample where the two labellers differ, which T1-KBEVAL-BASELINE left with a null `final`.

@@ -51,3 +51,17 @@ ruff check src/ tests/ && python -m pytest tests/test_kbfix_vector_stored_dim.py
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+
+Attempt 1. RED commit `f321f61`, GREEN commit `57c877d`. Tests: `tests/test_kbfix_vector_stored_dim.py` (real `sqlite_vec` 0.1.9, SQLite 3.50.4, no stub).
+
+| Acceptance item | Proving test or command | Result |
+|---|---|---|
+| 1. build 3 pages of dim 4, query with one page's vector, that page is the first hit | `test_built_index_returns_matching_page_first` | pass |
+| 2. real `vec0` table of dim 7: `PRAGMA table_info` type for `embedding` is empty, `_read_stored_dim` returns 7 | `test_stored_dim_read_from_declaration_when_pragma_type_is_empty` | pass |
+| 3. missing table: 0, no WARNING; table without `float[N]`: 0, two `query` calls on one instance give exactly one WARNING holding the db path | `test_missing_table_returns_zero_without_warning`, `test_table_without_dim_warns_once_per_instance_naming_db` | pass |
+| 4. existing dim-mismatch, auto-rebuild, atomic-rebuild and first-query tests pass unedited | DoD arm 2: `test_cycle25_dim_mismatch.py`, `test_cycle64_dim_mismatch_autorebuild.py`, `test_cycle24_vector_atomic_rebuild.py`, `test_cycle28_first_query_observability.py` (no edit; `git diff main -- tests/` touches only the new file) | pass |
+| 5. one entry under this card id in `CHANGELOG.md` `[Unreleased]` and in `CHANGELOG-history.md`; `CLAUDE.md` State counts equal `scripts/verify_docs.py` | `python scripts/verify_docs.py`: collected tests 3789, test file count 216; `CLAUDE.md` State line reads `3789 tests across 216 test files` | pass (reviewer-verified) |
+
+RED against the unfixed code (`main` at `640cf1b`): 3 failed, 1 passed. Failures are all `AssertionError`: `query` returned `[]` (acceptance 1), `_read_stored_dim` returned 0 for `float[7]` (acceptance 2), 0 WARNING records for a table without `float[N]` (acceptance 3, R3). No import or collection error. The 1 pass is the missing-table guard (R2), which the unfixed code already met. GREEN: DoD 32 passed.
