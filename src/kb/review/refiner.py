@@ -243,8 +243,26 @@ def refine_page(
         if re.match(r"---\n\s*\w+\s*:.*?\n---", stripped_content, re.DOTALL):
             return {"error": "Content looks like a frontmatter block — pass only the body text."}
 
-        # RED STUB (T1-KBFIX-SHRINK attempt 2): allow_shrink accepted, no floor check,
-        # no override metadata. Replaced by the fix in the next commit.
+        # T1-KBFIX-SHRINK (#162): refuse a body under REFINE_MIN_BODY_RATIO of the
+        # current one unless the caller opts in. Placed after every content gate so
+        # their errors win, and before the pending row so a refusal leaves the
+        # history untouched. The current body is the one read under the page lock.
+        # Ratio read through the module at call time (cycle-18 L1 / cycle-19 L2).
+        min_ratio = kb.config.REFINE_MIN_BODY_RATIO
+        previous_body_length = len(fm_match.group(2).strip())
+        new_body_length = len(updated_content.strip())
+        shrink_override = False
+        if previous_body_length > 0 and new_body_length < min_ratio * previous_body_length:
+            if not allow_shrink:
+                return {
+                    "error": (
+                        f"New body has {new_body_length} characters, under {min_ratio} of "
+                        f"the current body's {previous_body_length} (ratio "
+                        f"{new_body_length / previous_body_length:.3f} < {min_ratio}); "
+                        f"pass allow_shrink=True to replace it anyway."
+                    )
+                }
+            shrink_override = True
 
         # Reconstruct page — strip only leading newlines (preserve indented code blocks).
         # Adversarial-review MAJOR: use [\r\n]+ for defense-in-depth; upstream CRLF→LF
@@ -283,6 +301,11 @@ def refine_page(
                 "status": "pending",
                 "attempt_id": attempt_id,
             }
+            if shrink_override:
+                # Only on writes that cross the floor; absence means no override.
+                pending_row["allow_shrink"] = True
+                pending_row["previous_body_length"] = previous_body_length
+                pending_row["new_body_length"] = new_body_length
             history.append(pending_row)
             if len(history) > MAX_REVIEW_HISTORY_ENTRIES:
                 history = history[-MAX_REVIEW_HISTORY_ENTRIES:]
