@@ -61,3 +61,75 @@ ruff check src/ tests/ && python -m pytest tests/test_kbfix_line_ends.py tests/t
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+
+Attempt 1 (implementer, 2026-11-16). Worktree `D:\wt\llm-wiki-flywheel\T1-KBFIX-LINEENDS`, branch `T1-KBFIX-LINEENDS`.
+
+- Base: origin/main 9fffe1c; `git fetch origin main` before this entry: origin/main still 9fffe1c, branch is 9fffe1c + 6 commits, no merge needed.
+- Commits: d02fec9 RED tests; 8d2dc24 RED stub; ae75056 RED timing test reports the first differing offset (a plain `==` on the 5,000-line result made pytest diff two 250 KB strings past the 120 s suite timeout); 74ad7ef GREEN module + linker; 5f65fc4 docs; this entry.
+- Interpreter: main checkout `.venv` (`D:\Projects\llm-wiki-flywheel\.venv\Scripts\python.exe`, `ruff.exe`); pytest `pythonpath = ["src"]` imports the worktree: `kb.utils.line_ends` resolves to `D:\wt\llm-wiki-flywheel\T1-KBFIX-LINEENDS\src\kb\utils\line_ends.py` (the module does not exist in the main checkout).
+
+### RED receipt
+- Import RED at d02fec9: `python -m pytest tests/test_kbfix_line_ends.py -q -p no:cacheprovider` exit 2: `E   ModuleNotFoundError: No module named 'kb.utils.line_ends'`, `1 error in 0.63s`.
+- Behavioural RED at 8d2dc24 (stub returning `("", [])` and `""`): same command exit 1, `16 failed in 3.24s`, every failure an `AssertionError` (e.g. `test_kbfix_line_ends.py:58: AssertionError: assert '' == 'line 1\r\nli...\nline 10\r\n'`).
+- Against the #174 one-splice restore (probe, not committed): 8 of 16 fail: `test_two_separate_edits_keep_crlf_on_every_line_between_them`, both `test_a_merged_line_keeps_the_first_replaced_lines_end` cases, `test_an_added_line_gets_the_most_used_end[all-crlf]` and `[3-crlf-1-lf]`, `test_an_original_last_line_that_gains_an_end_gets_the_most_used_end[most-used-crlf]`, the property test and the timing test (`first difference at offset 5503`).
+
+### DoD receipt
+- Command (exact `dod_command`, worktree root, `.venv\Scripts` first on PATH) at 5f65fc4: exit 0. `ruff check src/ tests/`: `All checks passed!`; pytest: `209 passed in 15.36s`. Output sha256 prefix 68e6a8fcd89e4096.
+- Full suite at 74ad7ef (`python -m pytest -q -p no:cacheprovider`): exit 0, `3858 passed, 29 skipped, 17 xfailed, 54 warnings in 268.00s` (3904 collected). The docs commit changes no code or test.
+- `python scripts/verify_docs.py` at the docs tree: `pytest collected tests = 3904`, `test file count = 223`, `OK - docs in sync.`
+
+### Acceptance map
+| Item | Proof |
+|---|---|
+| 1 [R1] | `test_read_page_text_gives_read_text_and_the_line_ends`, `test_read_page_text_without_a_line_end_gives_no_ends` |
+| 2 [R2] | `test_lf_page_returns_text_unchanged` |
+| 3 [R3] | `test_two_separate_edits_keep_crlf_on_every_line_between_them`, `test_replaced_lines_keep_their_own_end_on_a_mixed_page`, `test_a_merged_line_keeps_the_first_replaced_lines_end[crlf-then-lf,lf-then-crlf]` |
+| 4 [R4] | `test_an_added_line_gets_the_most_used_end[all-crlf,3-crlf-1-lf,1-crlf-3-lf,2-2-tie]`, `test_an_original_last_line_that_gains_an_end_gets_the_most_used_end[most-used-crlf,most-used-lf]`, `test_a_text_without_a_final_line_end_gets_none` |
+| 5 [R2-R4] | `test_random_multi_edits_keep_the_text_and_the_page_ends` (seed 175, 3,000 cases, 1,000 each all-CRLF / all-LF / mixed), `test_a_5000_line_crlf_page_with_50_edits_restores_in_under_5_seconds` (0.65 s call locally) |
+| 6 [R5] | DoD: all 27 `tests/test_kbfix_linker_crlf.py` tests and every other DoD file pass; `git diff --name-only origin/main...HEAD -- tests/` lists only `tests/test_kbfix_line_ends.py`; `grep -cE '_read_page\|_restore_line_ends\|_LINE_END_RE' src/kb/compile/linker.py` = 0; linker line 10 `from kb.utils.line_ends import read_page_text, restore_line_ends`; `kb.utils.line_ends` has no `kb` import |
+| 7 | `docs/reference/architecture.md` (Wikilink injection bullet), `docs/reference/module-map.md` (Line ends bullet), one entry each in `CHANGELOG.md` and `CHANGELOG-history.md`, `CLAUDE.md` State "3904 tests across 223 test files" (verify_docs above) |
+
+### Finding for the lead (not changed on this branch)
+The plain `SequenceMatcher` alignment R3 names can pair a later duplicate line as `equal` and treat the edited line as added. Reproducer (mixed page, one in-line link splice on line 7, whose text "matters" also ends the page):
+`restore_line_ends('matters\n\n\n\nx Hydration\n x \n[[t|T]]ters\nmatters', 'matters\n\n\n\nx Hydration\n x \nmatters\nmatters', ['\n','\n','\n','\n','\r\n','\n','\r\n'])` gives `...\n[[t|T]]ters\nmatters`: the edited line loses its own CRLF and takes the most-used LF. The #174 restore kept CRLF. In a 20,000-case differential of single link splices on random mixed pages, 2 of 8,147 within-line splices differ this way; matching common leading and trailing lines before running `SequenceMatcher` on the middle removes both (8,147 of 8,147 equal to #174). All-CRLF and all-LF pages are not affected. This follows R3's literal text, so it is reported for a card amendment on main rather than changed here. Splices that span a line end differ from #174 by design (acceptance 3: a merged line keeps the FIRST replaced line's end; #174 kept the last).
+
+### Budget
+`git diff --stat origin/main...HEAD` before this entry: 8 files, +269 / -48. Of that, the new test file is 190 lines, the module 60, the linker -46 / +1, docs +14 / -2.
+
+### Attempt 2 (implementer, 2026-11-16, card amended on main at badd5ee)
+
+- Base sync: `git fetch origin && git merge --no-edit origin/main` gave merge commit 2f54b2a (origin/main badd5ee); the card file merged without conflict, main's amended text with the attempt-1 evidence below it. origin/main is still badd5ee at this entry.
+- Commits: 66c32e6 RED amended acceptance 3 and 5; d5efceb GREEN `restore_line_ends` amended; e49bf85 docs; this entry.
+- Attempt 1's section above is history: its finding is what the amendment fixed; the "a merged line keeps the first replaced line's end" rule it tested is replaced.
+
+#### RED receipt
+- At 66c32e6, `src/` identical to cd11126 (`git diff --quiet cd11126 HEAD -- src/`): `python -m pytest tests/test_kbfix_line_ends.py -q -p no:cacheprovider --tb=line` exit 1, `6 failed, 14 passed in 1.87s`, every failure an `AssertionError`:
+  - `test_a_merged_line_keeps_the_second_lines_end[crlf-then-lf]`, `[lf-then-crlf]`
+  - `test_a_split_line_gives_the_first_part_the_most_used_end_and_the_second_its_own[lf-line-on-crlf-page]`, `[crlf-line-on-lf-page]`
+  - `test_an_edited_line_whose_old_text_recurs_later_keeps_its_own_end`
+  - `test_single_splices_on_mixed_pages_give_the_one_splice_restores_bytes`
+
+#### DoD receipt
+- Exact `dod_command`, worktree root, main checkout `.venv\Scripts` first on PATH, at d5efceb: exit 0. `ruff check src/ tests/`: `All checks passed!`; pytest: `213 passed in 14.64s`. Output sha256 prefix 455200ccad760a75.
+- Full suite at d5efceb (`python -m pytest -q -p no:cacheprovider`): exit 0, `3862 passed, 29 skipped, 17 xfailed, 54 warnings in 209.92s` (3908 collected). e49bf85 and this entry change no code or test.
+- `python scripts/verify_docs.py` at e49bf85: `pytest collected tests = 3908`, `test file count = 223`, `OK - docs in sync.`
+
+#### Oracle differential
+- Committed: `test_single_splices_on_mixed_pages_give_the_one_splice_restores_bytes`, seed 174, 3,000 single splices on mixed pages (both CRLF and LF present, with and without a final line end, splice length 0-20, inserted text from a no-LF list including duplicates of page lines): every case equals the PR 174 restore copied into the test file.
+- Scratch (not committed, same probe as attempt 1): 20,000 draws, 19,874 non-empty single link splices on random mixed pages: 0 differ from #174 (attempt 1: 3,510 differed, 2 of them within one line).
+
+#### Acceptance map
+| Item | Proof |
+|---|---|
+| 1 [R1] | `test_read_page_text_gives_read_text_and_the_line_ends`, `test_read_page_text_without_a_line_end_gives_no_ends` |
+| 2 [R2] | `test_lf_page_returns_text_unchanged` |
+| 3 [R3] | `test_two_separate_edits_keep_crlf_on_every_line_between_them`, `test_replaced_lines_keep_their_own_end_on_a_mixed_page`, `test_a_merged_line_keeps_the_second_lines_end[crlf-then-lf,lf-then-crlf]`, `test_a_split_line_gives_the_first_part_the_most_used_end_and_the_second_its_own[lf-line-on-crlf-page,crlf-line-on-lf-page]`, `test_an_edited_line_whose_old_text_recurs_later_keeps_its_own_end` (the card's exact `original`, ends and seventh-line edit) |
+| 4 [R4] | `test_an_added_line_gets_the_most_used_end[all-crlf,3-crlf-1-lf,1-crlf-3-lf,2-2-tie]`, `test_an_original_last_line_that_gains_an_end_gets_the_most_used_end[most-used-crlf,most-used-lf]`, `test_a_text_without_a_final_line_end_gets_none` |
+| 5 [R2-R4] | `test_random_multi_edits_keep_the_text_and_the_page_ends` (seed 175, 3,000 cases), `test_single_splices_on_mixed_pages_give_the_one_splice_restores_bytes` (seed 174, 3,000 splices, oracle `_one_splice_restore`), `test_a_5000_line_crlf_page_with_50_edits_restores_in_under_5_seconds` (0.51 s call locally) |
+| 6 [R5] | DoD: all 27 `tests/test_kbfix_linker_crlf.py` tests and every other DoD file pass; `git diff --name-only origin/main...HEAD -- tests/` lists only `tests/test_kbfix_line_ends.py`; `src/kb/compile/linker.py` holds none of `_read_page`, `_restore_line_ends`, `_LINE_END_RE` and imports both helpers from `kb.utils.line_ends` (line 10); `kb.utils.line_ends` has no `kb` import |
+| 7 | `docs/reference/architecture.md` (Wikilink injection bullet: helper, leading/trailing rule, pairing from the end, added-line rule), `docs/reference/module-map.md` (Line ends bullet), one entry each in `CHANGELOG.md` and `CHANGELOG-history.md`, `CLAUDE.md` State "3908 tests across 223 test files" (verify_docs above) |
+
+#### Diff size
+`git diff --numstat origin/main...HEAD` before this entry: CHANGELOG-history.md 16/0, CHANGELOG.md 1/0, CLAUDE.md 1/1, docs/reference/architecture.md 1/1, docs/reference/module-map.md 1/0, specs/tasks/T1-KBFIX-LINEENDS.md 36/0, src/kb/compile/linker.py 7/46, src/kb/utils/line_ends.py 79/0, tests/test_kbfix_line_ends.py 261/0.
