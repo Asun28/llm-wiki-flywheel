@@ -59,3 +59,134 @@ ruff check bench/knowledge && python -m pytest bench/knowledge/tests/test_baseli
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+Attempt 1. RED `29f8555`, GREEN `05010c9`. Tests: `bench/knowledge/tests/test_baseline.py`.
+
+### Commits
+- `29f8555` RED: the three rulings in `labels.jsonl` (edited by a script that checked each row's labels differ, `final` is null and `ownerRuled` is false, and that every unchanged line re-serialises byte-equal) plus three new tests; the report is not updated. Result: 4 failed, 18 passed, every failure an `AssertionError`: the existing null-final check (`assert 3 == 0`), the owner-ruling figure (missing), the label-count table (`partly-supported` final `2` against `5`) and the band table (`low`/`partly-supported` `2` against `5`).
+- Control, same tests on the original `labels.jsonl` (stashed): 1 failed, 21 passed. The only failure is the owner-ruling figure, which the original report does not state; the two table tests pass, so they read the committed tables correctly before the change.
+- `05010c9` GREEN: the `Labels` section, one sentence of `What these numbers do not show` and both changelog entries. 22 passed.
+
+### Acceptance
+| Item | Proving test or command | Result |
+|---|---|---|
+| 1 [R1] | `git diff origin/main...HEAD -- bench/knowledge/labels.jsonl` (3 lines; `final` and `ownerRuled` only); `test_labels_are_in_the_closed_set_and_final_follows_the_rule` | pass |
+| 2 [R2] [R4] | `test_labels_section_states_owner_ruled_count_recomputed_from_labels`, `test_labels_section_states_agreement_kappa_and_null_count_recomputed_from_labels` | pass |
+| 3 [R2] [R4] | `test_label_count_table_equals_counts_recomputed_from_labels`, `test_final_by_band_table_equals_counts_recomputed_from_labels` | pass |
+| 4 [R4] | `test_every_number_in_the_report_comes_from_summary_or_labels` (allowed set now holds the owner-ruling count) | pass |
+| 5 [R3] [R5] | reviewer; both changelog entries; `git diff --numstat origin/main...HEAD -- src/kb templates tests pyproject.toml requirements.txt bench/knowledge/summary.json` | empty; for review |
+
+### Mutation checks (applied one at a time to the GREEN report, tests run, file restored; none committed)
+| Mutation | Caught by |
+|---|---|
+| M1 band table `low`/`partly-supported` 5 to 4 | `test_final_by_band_table_equals_counts_recomputed_from_labels` |
+| M2 `Rows with an owner ruling` 3 to 2 | `test_labels_section_states_owner_ruled_count_recomputed_from_labels` |
+| M3 label table `partly-supported` final 5 to 6 | `test_label_count_table_equals_counts_recomputed_from_labels` |
+| M4 band row `mid` deleted | `test_final_by_band_table_equals_counts_recomputed_from_labels` |
+
+## Attempt 2 evidence
+R3 (codex, decision 1/2) blocked `2e4c87b` with one finding: `table()` stored rows in a dict, so a second row with the same name overwrote the first, and a wrong `supported` row (or an all-zero `low` row) placed before the correct one passed every test. RED `394c9b8`, GREEN: the commit after it. Report and data unchanged from attempt 1.
+
+### Commits
+- `394c9b8` RED: the two table checks moved into `label_table_errors` and `band_table_errors` with the attempt-1 behaviour (dict, last row wins), plus `test_table_checks_reject_an_extra_row_placed_before_the_correct_one`, which inserts a wrong row and an exact copy before the correct row in each table. Result: 1 failed, 22 passed; the failure is `assert [] != []` (the wrong `supported` row passed).
+- GREEN: `table()` returns every row in order as (name, cells) with repeated names kept; both checks report a repeated row name (and the band check a repeated column), and compare every row, so a wrong row is reported even where it is not repeated. Also `test_labels_section_states_each_figure_once`: the four Labels figures are each read with `re.search`, which takes the first match, so a second line with another value would pass the same way; the test requires each figure line exactly once and checks that a doubled `Rows with an owner ruling` line is reported. 24 passed.
+
+### Findings
+| Finding | Fix | Tests |
+|---|---|---|
+| 1 duplicate-table-rows-unchecked | `table()` keeps every row; `repeated()` names repeated rows and columns; every row is compared with its expected counts | `test_table_checks_reject_an_extra_row_placed_before_the_correct_one`, `test_label_count_table_equals_counts_recomputed_from_labels`, `test_final_by_band_table_equals_counts_recomputed_from_labels` |
+| same class, figures | each Labels figure must be stated once | `test_labels_section_states_each_figure_once` |
+
+### Acceptance
+| Item | Proving test or command | Result |
+|---|---|---|
+| 1 [R1] | `git diff origin/main...HEAD -- bench/knowledge/labels.jsonl` (3 lines; `final` and `ownerRuled` only); `test_labels_are_in_the_closed_set_and_final_follows_the_rule` | pass |
+| 2 [R2] [R4] | `test_labels_section_states_owner_ruled_count_recomputed_from_labels`, `test_labels_section_states_agreement_kappa_and_null_count_recomputed_from_labels`, `test_labels_section_states_each_figure_once` | pass |
+| 3 [R2] [R4] | `test_label_count_table_equals_counts_recomputed_from_labels`, `test_final_by_band_table_equals_counts_recomputed_from_labels`, `test_table_checks_reject_an_extra_row_placed_before_the_correct_one` | pass |
+| 4 [R4] | `test_every_number_in_the_report_comes_from_summary_or_labels` | pass |
+| 5 [R3] [R5] | reviewer; both changelog entries; `git diff --numstat origin/main...HEAD -- src/kb templates tests pyproject.toml requirements.txt bench/knowledge/summary.json` | empty; for review |
+
+### Mutation checks on the GREEN tests (each run against the committed report with one change; none committed)
+| Mutation | Reported as |
+|---|---|
+| wrong `supported` row before the correct one | `row supported appears more than once`; `row supported is ['0', '0', '0'], expected ['38', '37', '36']` |
+| exact copy of the `supported` row | `row supported appears more than once` |
+| all-zero `low` row before the correct one | `row low appears more than once`; `low/supported is 0, expected 9` |
+| exact copy of the `low` row | `row low appears more than once` |
+| band header with `supported` twice | `column supported appears more than once` |
+| second `Rows with an owner ruling` line | `Rows with an owner ruling: stated 2 times` |
+
+## Attempt 3 evidence
+R3 (codex, decision 2/4) blocked `a055f82` with three findings of the same kind: the hand-written reader missed table rows written without their opening pipe, read only the first table with a given header, and counted figures only in `- ` bullets. RED `cb81f2b`, GREEN: the commit after it. Report and data unchanged from attempt 1.
+
+### Commits
+- `cb81f2b` RED: the checks take the whole report; `test_label_checks_cover_every_rendered_row_table_and_figure` builds the reviewer's cases. Under the attempt-2 helpers, 5 of its 6 visible cases pass (row without opening pipe in either table, a second `Label` table, a figure in a `*` bullet, a figure with an escaped colon); only a second `Band` table placed first is caught. Result: 1 failed, 24 passed, `AssertionError`.
+- GREEN: the report is parsed once by markdown-it-py (`commonmark` plus the GFM `table` rule; installed in CI through `rich`, which `fastmcp` requires), following lesson 4 of `docs/LESSONS.md` (check a hand-written CommonMark reader against a reference parser). Tables come from the parser's `table` tokens, with the `## ` section each sits under; the figures come from the rendered text of every inline run, table cell, code block and raw-HTML block.
+  - `matching_tables`: exactly one table with header `Label` and one with `Band`, both in `Labels`, and the rows of every matching table are compared.
+  - `figure_errors`: each of the four figures renders exactly once (any spacing or case, either apostrophe, optional `:` or `=`) with the value recomputed from `labels.jsonl`; this replaces the dash-bullet count of attempt 2.
+  - `labels_html_errors`: no raw HTML in the `Labels` section, since it could show a figure or table the parser does not read as one.
+  - 26 passed; the whole bench suite (`python -m pytest bench/knowledge/tests -q`): 369 passed, 4 skipped.
+
+### Findings
+| Finding | Fix | Tests |
+|---|---|---|
+| 1 row without an opening pipe after the last row | rows read from the parser's table tokens | `test_label_checks_cover_every_rendered_row_table_and_figure` (label and band cases) |
+| 2 second table with the same header | `matching_tables`: exactly one per header, rows of every match compared | same test (label and band cases) |
+| 3 figure in another bullet form | `figure_errors` reads the rendered text, independent of block syntax | same test (`*` bullet, escaped colon, code block, table cell, spacing, case, apostrophe, HTML comment) |
+
+### Acceptance
+| Item | Proving test or command | Result |
+|---|---|---|
+| 1 [R1] | `git diff origin/main...HEAD -- bench/knowledge/labels.jsonl` (3 lines; `final` and `ownerRuled` only); `test_labels_are_in_the_closed_set_and_final_follows_the_rule` | pass |
+| 2 [R2] [R4] | `test_labels_section_renders_each_figure_once_with_its_recomputed_value`, `test_labels_section_states_owner_ruled_count_recomputed_from_labels`, `test_labels_section_states_agreement_kappa_and_null_count_recomputed_from_labels` | pass |
+| 3 [R2] [R4] | `test_label_count_table_equals_counts_recomputed_from_labels`, `test_final_by_band_table_equals_counts_recomputed_from_labels`, `test_table_checks_reject_an_extra_row_placed_before_the_correct_one`, `test_label_checks_cover_every_rendered_row_table_and_figure`, `test_labels_section_holds_no_raw_html` | pass |
+| 4 [R4] | `test_every_number_in_the_report_comes_from_summary_or_labels` | pass |
+| 5 [R3] [R5] | reviewer; both changelog entries; `git diff --numstat origin/main...HEAD -- src/kb templates tests pyproject.toml requirements.txt bench/knowledge/summary.json` | empty; for review |
+
+### Probes on the GREEN helpers (each a one-change copy of the committed report; none committed)
+| Probe | Reported as |
+|---|---|
+| `supported` row without opening pipe after the `null` row | `label table: row supported appears more than once` |
+| second `Label` table | `label table: 2 tables with header 'Label'` |
+| `low` row without opening pipe after the `low` row | `band table: row low appears more than once` |
+| second `Band` table after the first | `band table: 2 tables with header 'Band'` |
+| `Label` table inside a blockquote | `label table: 2 tables with header 'Label'` |
+| second owner figure as `*` bullet, with `\:`, in a code block, in an HTML block, with ` : ` | `Rows with an owner ruling: rendered ['3', ...], expected ['3']` |
+| second kappa with a curly apostrophe | `Cohen's kappa: rendered ['0.89', '0.10'], expected ['0.89']` |
+| HTML table in `Labels` | `Labels section holds 1 pieces of raw HTML` |
+
+## Attempt 4 evidence
+R3 (codex, decision 3/4) blocked `a5e4733` with one finding: a figure was counted only when a number followed its name in the same inline run, so a second figure written `+2`, or with its value in the next paragraph, was not counted. RED `f8d2b3a`, GREEN: the commit after it.
+
+### Commits
+- `f8d2b3a` RED: `test_label_checks_find_figures_by_name_and_label_rows_in_any_table`, with the reviewer's cases (`* Rows with an owner ruling: +2`, `* Rows with a null final: +2`, value in the next paragraph) plus a figure in image alt text, a second label table with a lower-case header, label rows under another header, and a band row in another table. Under the attempt-3 helpers 5 of the 7 cases pass (the two label-table cases were already caught as other tables in `Labels`). Result: 1 failed, 26 passed, `AssertionError`.
+- GREEN:
+  - `figure_errors` finds each figure by its name alone (any spacing or case, either apostrophe), whatever follows it; exactly one occurrence must be in the report, and it must read `<name>: <value>` with the recomputed value. The report's one other mention of a figure name (`What these numbers do not show`, in backticks) now reads "(see Labels)".
+  - `matching_tables`: a row named after a label or `null` (or a band) in any table other than the one label (or band) table is an error, whatever that table's header.
+  - `plain` includes image alt text; all rendered text is NFKC-normalised with format characters (zero-width spaces, soft hyphens) removed, so a name cannot be hidden by them.
+  - `html_errors`: no raw HTML anywhere in the report (it holds none), not only in `Labels`.
+  - 27 passed; whole bench suite 370 passed, 4 skipped.
+
+### Findings
+| Finding | Fix | Tests |
+|---|---|---|
+| 1 figure-occurrences-unchecked (signed value, value in the next paragraph) | figures found by name, then the one occurrence's value checked | `test_label_checks_find_figures_by_name_and_label_rows_in_any_table`, `test_labels_section_renders_each_figure_once_with_its_recomputed_value` |
+| same class, tables | label and band rows in any other table are errors | same regression test (label and band cases) |
+
+### Acceptance
+| Item | Proving test or command | Result |
+|---|---|---|
+| 1 [R1] | `git diff origin/main...HEAD -- bench/knowledge/labels.jsonl` (3 lines; `final` and `ownerRuled` only); `test_labels_are_in_the_closed_set_and_final_follows_the_rule` | pass |
+| 2 [R2] [R4] | `test_labels_section_renders_each_figure_once_with_its_recomputed_value`, `test_labels_section_states_owner_ruled_count_recomputed_from_labels`, `test_labels_section_states_agreement_kappa_and_null_count_recomputed_from_labels`, `test_label_checks_find_figures_by_name_and_label_rows_in_any_table` | pass |
+| 3 [R2] [R4] | `test_label_count_table_equals_counts_recomputed_from_labels`, `test_final_by_band_table_equals_counts_recomputed_from_labels`, `test_table_checks_reject_an_extra_row_placed_before_the_correct_one`, `test_label_checks_cover_every_rendered_row_table_and_figure`, `test_report_holds_no_raw_html` | pass |
+| 4 [R4] | `test_every_number_in_the_report_comes_from_summary_or_labels` | pass |
+| 5 [R3] [R5] | reviewer; both changelog entries; `git diff --numstat origin/main...HEAD -- src/kb templates tests pyproject.toml requirements.txt bench/knowledge/summary.json` | empty; for review |
+
+### Probes on the GREEN helpers (each a one-change copy of the committed report; none committed)
+| Probe | Reported as |
+|---|---|
+| second owner figure `+2`; second null figure `+2`; value in the next paragraph; in image alt text; with a zero-width space in the name; with one word in bold; in another section | `<figure>: shown 2 times` |
+| HTML block outside `Labels` | `raw HTML in sections ['What these numbers do not show']` |
+| `low` row in a table with header `Group` | `band table: row 'low' in a table with header 'Group'` |
+| `Supported` row in a table with header `Count` in another section | `label table: row 'Supported' in a table with header 'Count'` |
