@@ -1,0 +1,99 @@
+"""T1-KBFIX-VECDIM (#154): the stored embedding dim comes from the `vec_pages`
+declaration in `sqlite_master`, not from `PRAGMA table_info`.
+
+These tests use the REAL `sqlite_vec` extension (a project dependency). With
+sqlite-vec 0.1.9 `PRAGMA table_info(vec_pages)` reports an empty type for the
+`embedding` column, so a reader that parses that column sees dim 0 and every
+vector query returns [] silently.
+"""
+
+from __future__ import annotations
+
+import logging
+import sqlite3
+from pathlib import Path
+
+import sqlite_vec
+
+from kb.query.embeddings import VectorIndex
+
+_LOGGER = "kb.query.embeddings"
+
+
+def _db_path(tmp_path: Path) -> Path:
+    data_dir = tmp_path / ".data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return data_dir / "vector_index.db"
+
+
+def _vec_connection(db_path: Path) -> sqlite3.Connection:
+    conn = sqlite3.connect(str(db_path))
+    conn.enable_load_extension(True)
+    sqlite_vec.load(conn)
+    conn.enable_load_extension(False)
+    return conn
+
+
+def test_built_index_returns_matching_page_first(tmp_path):
+    """Acceptance 1 [R1][R4]: build 3 pages of dim 4, query with one page's vector."""
+    db_path = _db_path(tmp_path)
+    entries = [
+        ("concepts/alpha", [1.0, 0.0, 0.0, 0.0]),
+        ("concepts/beta", [0.0, 1.0, 0.0, 0.0]),
+        ("concepts/gamma", [0.0, 0.0, 1.0, 0.0]),
+    ]
+    VectorIndex(db_path).build(entries)
+
+    hits = VectorIndex(db_path).query([0.0, 1.0, 0.0, 0.0], limit=3)
+
+    assert hits, "vector query returned no hits for a vector stored in the index"
+    assert hits[0][0] == "concepts/beta"
+
+
+def test_stored_dim_read_from_declaration_when_pragma_type_is_empty(tmp_path):
+    """Acceptance 2 [R1]: a real vec0 table of dim 7 reports dim 7."""
+    db_path = _db_path(tmp_path)
+    conn = _vec_connection(db_path)
+    try:
+        conn.execute("CREATE VIRTUAL TABLE vec_pages USING vec0(embedding float[7])")
+        columns = {row[1]: row[2] for row in conn.execute("PRAGMA table_info(vec_pages)")}
+        # The format this card guards: the PRAGMA type column carries no dim.
+        assert columns["embedding"] == ""
+
+        assert VectorIndex(db_path)._read_stored_dim(conn) == 7
+    finally:
+        conn.close()
+
+
+def test_missing_table_returns_zero_without_warning(tmp_path, caplog):
+    """Acceptance 3 [R2]: no vec_pages table -> 0, no WARNING."""
+    db_path = _db_path(tmp_path)
+    conn = _vec_connection(db_path)
+    try:
+        with caplog.at_level(logging.WARNING, logger=_LOGGER):
+            assert VectorIndex(db_path)._read_stored_dim(conn) == 0
+    finally:
+        conn.close()
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+
+
+def test_table_without_dim_warns_once_per_instance_naming_db(tmp_path, caplog):
+    """Acceptance 3 [R3]: vec_pages without float[N] -> 0 and exactly one WARNING."""
+    db_path = _db_path(tmp_path)
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute("CREATE TABLE vec_pages (embedding BLOB)")
+        conn.commit()
+        assert VectorIndex(db_path)._read_stored_dim(conn) == 0
+    finally:
+        conn.close()
+
+    idx = VectorIndex(db_path)
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger=_LOGGER):
+        assert idx.query([0.0, 1.0, 0.0, 0.0]) == []
+        assert idx.query([0.0, 1.0, 0.0, 0.0]) == []
+
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(warnings) == 1
+    assert str(db_path) in warnings[0].getMessage()
