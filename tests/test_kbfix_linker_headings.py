@@ -313,8 +313,7 @@ _DIFF_PIECES = [
 
 
 def test_every_commonmark_heading_line_is_protected():
-    # Three trailing ")" lines close every "](" opener (at most three per case):
-    # `_CODE_MASK_RE` (frozen, R3) backtracks exponentially on an unclosed "](".
+    # Three trailing ")" lines close every "](" opener (at most three per case).
     tail = "\n)\n)\n)\n"
     cases = ["\n".join(p) + tail for p in itertools.product(_DIFF_PIECES, repeat=3)]
     assert len(cases) == 512

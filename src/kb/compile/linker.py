@@ -43,10 +43,13 @@ def _check_not_in_wikilink(match: re.Match, body: str, pid: str, replacement: st
 
 # Regex for fenced code blocks (``` ... ```), inline code (`...`),
 # markdown links ([text](url)), and images (![alt](url)).
+# Each repetition inside a link's parentheses consumes one character or one
+# parenthesised group, so an unclosed "](" fails in linear time (#167); a
+# `[^()]*` branch inside the repetition backtracked exponentially.
 _CODE_MASK_RE = re.compile(
     r"```.*?```|~~~.*?~~~|`[^`\n]+`"
-    r"|!\[(?:[^\]]*)\]\((?:[^()]*|\([^()]*\))*\)"
-    r"|\[(?:[^\]]*)\]\((?:[^()]*|\([^()]*\))*\)",
+    r"|!\[(?:[^\]]*)\]\((?:[^()]|\([^()]*\))*\)"
+    r"|\[(?:[^\]]*)\]\((?:[^()]|\([^()]*\))*\)",
     re.DOTALL,
 )
 
