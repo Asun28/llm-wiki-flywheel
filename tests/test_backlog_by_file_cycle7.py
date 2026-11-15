@@ -261,7 +261,7 @@ class TestUpdateExistingPageContextAppend:
         text = page_path.read_text(encoding="utf-8")
         # Context from a must still be present.
         assert "Context from source a" in text
-        # New context from b must land under ### From raw/articles/b.md subsection.
+        # New context from b must land under ### From `raw/articles/b.md` subsection.
         assert "### From `raw/articles/b.md`" in text
         assert "Context from source b" in text
 
