@@ -17,6 +17,19 @@ Purpose: Full per-cycle bullet-level detail archive. CHANGELOG.md is the compact
 
 > Detailed per-cycle entries live here. High-level summaries remain in [CHANGELOG.md](CHANGELOG.md); full bullet-level detail belongs here.
 
+### 2026-11-15 — T1-KBFIX-FROMHEAD (headings are never linked; `### From` ref as inline code, #161)
+
+**Theme:** the linker turned `### From raw/articles/high-hydration.md` into `### From raw/articles/high-[[concepts/hydration|Hydration]].md`, breaking the source path, because ingest wrote the path bare and the injection mask covered only code, links and images.
+
+- **`src/kb/compile/linker.py`.** New `_ATX_HEADING_RE` (`(?m)^ {0,3}#{1,6}(?:[ 	][^
+]*)?$`, checked against markdown-it-py on 616 generated lines with no disagreement) and `_mask_for_injection`, which collects the `_CODE_MASK_RE` spans and the ATX heading lines on the original text, merges overlapping spans and replaces each merged range with one placeholder holding the exact original substring. Attempt 1 matched headings on the code-masked text; review finding R3 F1 showed that a `_CODE_MASK_RE` link match crossing a newline (`See [docs
+## link](url) Hydration`, `## [docs](
+url) Hydration`) then hid the heading line or masked paragraph text as heading. The four injection sites (peek and locked pass of `inject_wikilinks` and `inject_wikilinks_batch`) use it, so a page whose only match is in a heading is neither locked nor written. `_mask_code_blocks` is unchanged: ingest Context/References editing and the dead-links lint still see headings; masking there failed 5 ingest tests.
+- **`src/kb/ingest/pipeline.py`.** New `_inline_code(text)`: single backticks when the ref holds none, else a backtick run one longer than the longest run in the ref with one space inside each side. The `### From` subsection heading uses it. Existing `### From` headings on disk are not rewritten.
+- **Tests.** `tests/test_kbfix_linker_headings.py` (new, 36 tests): both review cases through both injectors (heading kept, paragraph text linked, heading-only page not written); mask round trip on 8 inputs incl. CRLF; heading-free inputs masked exactly like `_CODE_MASK_RE`; 512 generated documents where every markdown-it-py ATX heading line lies inside one masked range; re-ingest through `ingest_source` writes ``### From `raw/articles/second.md` ``; refs with 0, 1 and 2 backticks each parse as one `code_inline` token equal to the ref; heading levels 1-6, indent 0-3, closing `#`s and a tab separator stay byte-identical while the body is linked, through both injectors; a heading holding inline code is restored exactly; `#tag` without a space is still linked; a page matching only in headings keeps its bytes and mtime; `_mask_code_blocks` on a sample equals a literal value. `tests/test_backlog_by_file_cycle7.py:265` now expects the inline-code heading.
+- **Tests:** 3799 → 3835 (+36); test files 217 → 218.
+- **Open, not fixed (frozen by R3):** `_CODE_MASK_RE`'s link alternative `\((?:[^()]*|\([^()]*\))*\)` backtracks exponentially on a `](` that is never closed (about 4x per 2 extra characters), in every `_mask_code_blocks` caller.
+
 ### 2026-11-15 — T1-KBFIX-TPLBASE (ingest records the template baseline, #160)
 
 **Theme:** on a wiki built by `ingest_source` alone, `find_changed_sources` listed every source of every ingested type as changed, because only `compile_wiki` wrote `_template/<type>` manifest keys and the scan reads a missing key as a template change.
