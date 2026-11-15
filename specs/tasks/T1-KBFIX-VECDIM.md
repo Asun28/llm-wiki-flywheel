@@ -1,7 +1,7 @@
 ---
 id: T1-KBFIX-VECDIM
 title: "`VectorIndex` reads the stored embedding dimension from the `vec_pages` declaration in `sqlite_master`, so vector search returns hits with sqlite-vec 0.1.9 (#154)"
-status: todo
+status: merged
 branch: T1-KBFIX-VECDIM
 worktree: D:\wt\llm-wiki-flywheel\T1-KBFIX-VECDIM
 plan_ref: plans/kb-defects-1.md#order-of-work
