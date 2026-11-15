@@ -1,0 +1,87 @@
+"""T0-KBFIX-CRLF (#168): wikilink injection writes a page back with its own line
+endings: CRLF, LF and lone CR are kept."""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+import pytest
+
+from kb.compile.linker import inject_wikilinks, inject_wikilinks_batch
+from kb.utils.pages import load_all_pages
+
+_TARGET = "concepts/hydration"
+_LINK = f"[[{_TARGET}|Hydration]]"
+_APIS = ["single", "batch", "batch-pages"]
+
+
+def _page(nl: str, body_lines: list[str]) -> bytes:
+    """A page whose frontmatter and body lines all end in ``nl``."""
+    lines = [
+        "---",
+        'title: "Bread"',
+        "source:",
+        '  - "raw/articles/a.md"',
+        "type: entity",
+        "confidence: stated",
+        "created: 2026-04-01",
+        "updated: 2026-04-01",
+        "---",
+        "",
+        *body_lines,
+    ]
+    return (nl.join(lines) + nl).encode("utf-8")
+
+
+def _write(wiki: Path, data: bytes) -> Path:
+    # Bytes, not text: write_text on Windows would turn every "\n" into "\r\n".
+    path = wiki / "entities" / "bread.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    return path
+
+
+def _inject(api: str, wiki: Path) -> list[str]:
+    if api == "single":
+        return inject_wikilinks("Hydration", _TARGET, wiki_dir=wiki)
+    pages = load_all_pages(wiki) if api == "batch-pages" else None
+    return inject_wikilinks_batch([("Hydration", _TARGET)], wiki_dir=wiki, pages=pages)[_TARGET]
+
+
+# --- Acceptance 1 [R1] -----------------------------------------------------
+
+
+@pytest.mark.parametrize("nl", ["\r\n", "\n"], ids=["crlf", "lf"])
+@pytest.mark.parametrize("api", _APIS)
+def test_page_keeps_its_line_endings(tmp_wiki, api, nl):
+    path = _write(tmp_wiki, _page(nl, ["## Hydration", "", "Hydration matters."]))
+    assert _inject(api, tmp_wiki) == ["entities/bread"]
+    assert path.read_bytes() == _page(nl, ["## Hydration", "", f"{_LINK} matters."])
+
+
+# --- Acceptance 2 [R1] -----------------------------------------------------
+
+_MIXED_BODY = "## Hydration\r\n\nIntro.\rHydration matters.\nLast line.\r\n"
+
+
+@pytest.mark.parametrize("api", _APIS)
+def test_mixed_line_endings_are_kept(tmp_wiki, api):
+    head = _page("\r\n", [])
+    path = _write(tmp_wiki, head + _MIXED_BODY.encode("utf-8"))
+    assert _inject(api, tmp_wiki) == ["entities/bread"]
+    expected_body = "## Hydration\r\n\nIntro.\r" + f"{_LINK} matters.\nLast line.\r\n"
+    assert path.read_bytes() == head + expected_body.encode("utf-8")
+
+
+# --- Acceptance 3 [R2] -----------------------------------------------------
+
+
+@pytest.mark.parametrize("api", _APIS)
+def test_crlf_page_matching_only_in_a_heading_is_not_written(tmp_wiki, api):
+    before = _page("\r\n", ["## Hydration", "", "Bread is baked."])
+    path = _write(tmp_wiki, before)
+    old = os.stat(path).st_mtime_ns - 10_000_000_000
+    os.utime(path, ns=(old, old))
+    assert _inject(api, tmp_wiki) == []
+    assert (path.read_bytes(), os.stat(path).st_mtime_ns) == (before, old)

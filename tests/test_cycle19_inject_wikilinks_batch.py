@@ -5,9 +5,10 @@ existing wiki page AT MOST ONCE (per chunk). Under per-page lock the winner
 is re-derived from FRESH body content (AC1b — pre-lock scan is candidate-
 gathering only).
 
-Test strategy mirrors cycle-18 linker tests: spy on file_lock + Path.read_text
-to count interactions; cycle-11 L1 vacuous-gate revert checks confirm test
-divergence is real (reverting to per-target inject_wikilinks would fail T-2/T-4).
+Test strategy mirrors cycle-18 linker tests: spy on file_lock + Path.read_bytes
+(the linker's page read since T0-KBFIX-CRLF, #168) to count interactions;
+cycle-11 L1 vacuous-gate revert checks confirm test divergence is real
+(reverting to per-target inject_wikilinks would fail T-2/T-4).
 """
 
 from __future__ import annotations
@@ -115,16 +116,16 @@ def test_read_budget_bounded(tmp_wiki: Path, monkeypatch) -> None:
     _write_page(tmp_wiki / "entities" / "p5.md", "P5", "still no match.")
     _write_page(tmp_wiki / "concepts" / "foo.md", "Foo", "Target.")
 
-    real_read_text = Path.read_text
+    real_read_bytes = Path.read_bytes
     read_count = {"n": 0}
 
-    def counting_read_text(self, *args, **kwargs):
+    def counting_read_bytes(self, *args, **kwargs):
         # Only count reads of the entities/p*.md files, not the target.
         if "entities" in str(self):
             read_count["n"] += 1
-        return real_read_text(self, *args, **kwargs)
+        return real_read_bytes(self, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "read_text", counting_read_text)
+    monkeypatch.setattr(Path, "read_bytes", counting_read_bytes)
 
     new_pages = [("Foo", "concepts/foo")]
     linker.inject_wikilinks_batch(new_pages, wiki_dir=tmp_wiki)
@@ -385,15 +386,15 @@ def test_revert_to_per_target_inject_would_inflate_read_count(tmp_wiki: Path, mo
     _write_page(tmp_wiki / "concepts" / "bar.md", "Bar", "T.")
     _write_page(tmp_wiki / "concepts" / "baz.md", "Baz", "T.")
 
-    real_read_text = Path.read_text
+    real_read_bytes = Path.read_bytes
     read_count = {"n": 0}
 
-    def counting_read_text(self, *args, **kwargs):
+    def counting_read_bytes(self, *args, **kwargs):
         if "entities" in str(self):
             read_count["n"] += 1
-        return real_read_text(self, *args, **kwargs)
+        return real_read_bytes(self, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "read_text", counting_read_text)
+    monkeypatch.setattr(Path, "read_bytes", counting_read_bytes)
 
     # Per-target equivalent: 3 separate inject_wikilinks calls
     for title, pid in [("Foo", "concepts/foo"), ("Bar", "concepts/bar"), ("Baz", "concepts/baz")]:
