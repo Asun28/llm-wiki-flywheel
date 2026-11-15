@@ -26,6 +26,7 @@ Purpose: Full per-cycle bullet-level detail archive. CHANGELOG.md is the compact
 - **`src/kb/mcp/quality.py`.** `kb_refine_page` gains `allow_shrink: bool = False` (in the registered MCP schema) and passes it to `refine_page`.
 - **Tests.** `tests/test_kbfix_refine_shrink_guard.py` (new, 15 tests): 99/200 refused with the exact error and page and history bytes unchanged; 100/200 accepted; 2/200 refused, then written with `allow_shrink=True` and recorded; writes above the floor (with and without `allow_shrink`) record no override keys; malformed frontmatter and whitespace-only bodies keep their own errors; an empty current body accepts any body; CRLF in either body counts as one character; ratio monkeypatched to 0.9 refuses 150/200; the MCP tool refuses and then writes with the override; `refine_page` signature and MCP schema list `allow_shrink`.
 - **BACKLOG.** The HIGH `kb_refine_page` shrink entry is deleted, and its open half, threading the `kb_review_page` truncation fact through to `refine_page`, is re-filed as its own HIGH bullet.
+- **T1-KBFIX-SHRINK-2.** Successor card after CI run 43695280342 found that the floor refuses `tests/test_workflow_e2e.py::test_e2e_ingest_refine_requery` (a 242-character entity page replaced by a 47-character marker on purpose); that one `refine_page` call now passes `allow_shrink=True`, no assertion changed.
 - **Tests:** 3835 → 3850 (+15); test files 218 → 219.
 
 ### 2026-11-15 — T1-KBFIX-FROMHEAD (headings are never linked; `### From` ref as inline code, #161)

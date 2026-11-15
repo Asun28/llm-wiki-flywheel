@@ -63,3 +63,21 @@ ruff check src/ tests/ && python -m pytest tests/test_kbfix_refine_shrink_guard.
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+
+Attempt 1. Branch continues T1-KBFIX-SHRINK at `e5f967b`. Base sync: merge commit `a3971a0` (`git merge --no-edit origin/main`, no conflicts; brought this card and the main-side update of `specs/tasks/T1-KBFIX-SHRINK.md`). Edit commit `46df6e5`. Attempts 1-2 evidence for items 1-5 (RED receipt: stub `89463ed`, 6 failed, all `AssertionError`; mutation checks (a), (b), (c)) stays in `specs/tasks/T1-KBFIX-SHRINK.md`.
+
+RED for the e2e edit, on `a3971a0` before the edit: `tests/test_workflow_e2e.py` 1 failed, 2 passed; `test_e2e_ingest_refine_requery` fails on its own assertion: `AssertionError: refine_page failed: {'error': "New body has 47 characters, under 0.5 of the current body's 242 (ratio 0.194 < 0.5); pass allow_shrink=True to replace it anyway."}`. Same failure as CI run 43695280342 on `e5f967b`.
+
+GREEN: DoD exit 0, `ruff` "All checks passed!", `153 passed, 1 skipped in 9.46s`. Full suite once (`python -m pytest -q -p no:cacheprovider --snapshot-warn-unused`): exit 0, `3804 passed, 29 skipped, 17 xfailed, 54 warnings in 244.88s`; 3804 + 29 + 17 = 3850, the collected count.
+
+| Acceptance item | Proving test or command | Result |
+|---|---|---|
+| 1. 99/200 refused with both lengths and the ratio, page and history unchanged; 100/200 accepted | `test_a_body_just_under_half_is_refused_with_both_lengths_and_the_ratio`, `test_a_body_of_exactly_half_is_accepted` (RED in T1-KBFIX-SHRINK attempt 2) | pass |
+| 2. 2/200 refused; written with `allow_shrink=True` and recorded; non-crossing writes record none of the keys | `test_a_one_percent_body_is_refused_without_the_override`, `test_the_override_writes_the_body_and_records_it_in_history`, `test_a_write_above_the_floor_records_no_override_keys`, `test_allow_shrink_on_a_write_above_the_floor_records_no_override_keys` (mutation (b)) | pass |
+| 3. frontmatter and empty-body errors win; empty current body has no floor; CRLF in either body does not change the counts | `test_malformed_frontmatter_is_reported_before_the_shrink_floor`, `test_a_whitespace_only_body_gets_the_empty_body_error`, `test_a_page_with_an_empty_body_accepts_any_non_empty_body`, `test_crlf_in_the_new_body_is_counted_as_one_character`, `test_crlf_in_the_current_body_is_counted_as_one_character` | pass |
+| 4. ratio monkeypatched to 0.9 refuses 150/200 | `test_the_ratio_is_read_at_call_time` | pass |
+| 5. MCP tool refuses 1% and writes it with the override; `allow_shrink` keyword-only, default `False` | `test_the_mcp_tool_refuses_a_one_percent_body_and_writes_it_with_the_override`, `test_refine_page_takes_allow_shrink_as_keyword_only_defaulting_to_false`, `test_the_registered_mcp_tool_schema_lists_allow_shrink` | pass |
+| 6. existing DoD tests pass; the only existing-test edit is `allow_shrink=True` in `test_e2e_ingest_refine_requery` | DoD arm 2 (153 passed, 1 skipped); `git diff origin/main...HEAD -- tests/test_workflow_e2e.py`: 2 added lines (comment + `allow_shrink=True,`), no assertion change; every other `tests/` change is the new file `tests/test_kbfix_refine_shrink_guard.py` | pass |
+| 7. BACKLOG entry deleted and the truncation half re-filed; `mcp-servers.md` names `allow_shrink`; one changelog entry under T1-KBFIX-SHRINK naming this card; State counts | BACKLOG and `mcp-servers.md` from T1-KBFIX-SHRINK (`612763d`, `f7908c7`); `CHANGELOG.md` and `CHANGELOG-history.md` T1-KBFIX-SHRINK entries each gain one T1-KBFIX-SHRINK-2 clause; `python -m pytest --collect-only -q`: 3850 tests, `scripts/verify_docs.py` "docs in sync", State line `3850 tests across 219 test files` (unchanged: the edit adds no test) | pass (reviewer-verified) |
