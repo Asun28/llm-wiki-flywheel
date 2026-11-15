@@ -51,3 +51,63 @@ ruff check src/ tests/ && python -m pytest tests/test_kbfix_vector_stored_dim.py
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+
+Attempt 1. RED commit `f321f61`, GREEN commit `57c877d`. Tests: `tests/test_kbfix_vector_stored_dim.py` (real `sqlite_vec` 0.1.9, SQLite 3.50.4, no stub).
+
+| Acceptance item | Proving test or command | Result |
+|---|---|---|
+| 1. build 3 pages of dim 4, query with one page's vector, that page is the first hit | `test_built_index_returns_matching_page_first` | pass |
+| 2. real `vec0` table of dim 7: `PRAGMA table_info` type for `embedding` is empty, `_read_stored_dim` returns 7 | `test_stored_dim_read_from_declaration_when_pragma_type_is_empty` | pass |
+| 3. missing table: 0, no WARNING; table without `float[N]`: 0, two `query` calls on one instance give exactly one WARNING holding the db path | `test_missing_table_returns_zero_without_warning`, `test_table_without_dim_warns_once_per_instance_naming_db` | pass |
+| 4. existing dim-mismatch, auto-rebuild, atomic-rebuild and first-query tests pass unedited | DoD arm 2: `test_cycle25_dim_mismatch.py`, `test_cycle64_dim_mismatch_autorebuild.py`, `test_cycle24_vector_atomic_rebuild.py`, `test_cycle28_first_query_observability.py` (no edit; `git diff main -- tests/` touches only the new file) | pass |
+| 5. one entry under this card id in `CHANGELOG.md` `[Unreleased]` and in `CHANGELOG-history.md`; `CLAUDE.md` State counts equal `scripts/verify_docs.py` | `python scripts/verify_docs.py`: collected tests 3789, test file count 216; `CLAUDE.md` State line reads `3789 tests across 216 test files` | pass (reviewer-verified) |
+
+RED against the unfixed code (`main` at `640cf1b`): 3 failed, 1 passed. Failures are all `AssertionError`: `query` returned `[]` (acceptance 1), `_read_stored_dim` returned 0 for `float[7]` (acceptance 2), 0 WARNING records for a table without `float[N]` (acceptance 3, R3). No import or collection error. The 1 pass is the missing-table guard (R2), which the unfixed code already met. GREEN: DoD 32 passed.
+
+Attempt 2 (repair of R3 decision 1, verdict `.review/T1-KBFIX-VECDIM.r3.1.db2c7dff.json` on `fcdb090`). RED commit `d33ff6a`, GREEN commit `44f2a32`.
+
+Finding F1 (class: schema-warning-race) at `src/kb/query/embeddings.py:725`: concurrent first queries on one shared `VectorIndex` could each see `_schema_warned` False and log the R3 WARNING more than once. Same-class site in `allow_paths`: `_dim_warned` in `query()` (the dim-mismatch WARNING). Repair: one per-instance `_warn_lock`; under it, if the flag is False it is set True and the WARNING is logged. The lock covers only the flag and the log call: not the SQL query, not the auto-rebuild, never nested with `_conn_lock`. `_dim_warned` changed as a same-class site per the REVIEW_FIX directive; single-thread behaviour, the mismatch counter and auto-rebuild are unchanged.
+
+| Input form / failure path | Covering test | Result |
+|---|---|---|
+| schema warning: 4 concurrent first `_read_stored_dim` calls on one instance, table without `float[N]` | `tests/test_kbfix_vector_stored_dim.py::test_schema_warning_logged_once_under_concurrent_first_reads` | pass |
+| dim-mismatch warning: 4 concurrent `query` calls with a dim-3 vector on one instance of a real dim-4 index, `KB_DISABLE_VECTOR_AUTO_REBUILD=1` | `tests/test_kbfix_vector_stored_dim.py::test_dim_mismatch_warning_logged_once_under_concurrent_queries` | pass |
+| single-thread paths unchanged (dim-mismatch message, per-query counter, auto-rebuild, first-query logging) | DoD arm 2: the 4 existing test files, no edit | pass |
+
+Both tests release 4 threads on one `threading.Event` and replace `kb.query.embeddings.logger.warning` with a recorder that sleeps 0.2s, so every thread reaches the check before the first caller returns. RED on `fcdb090`: 2 failed, 4 passed; both failures `AssertionError: assert 4 == 1` (4 recorded warnings), no import or collection error. GREEN: DoD 34 passed.
+
+Acceptance table, corrected for attempt 2:
+
+| Acceptance item | Proving test or command | Result |
+|---|---|---|
+| 1 | `test_built_index_returns_matching_page_first` | pass |
+| 2 | `test_stored_dim_read_from_declaration_when_pragma_type_is_empty` | pass |
+| 3 | `test_missing_table_returns_zero_without_warning`, `test_table_without_dim_warns_once_per_instance_naming_db`, `test_schema_warning_logged_once_under_concurrent_first_reads` (at most once per instance under concurrency) | pass |
+| 4 | DoD arm 2: `test_cycle25_dim_mismatch.py`, `test_cycle64_dim_mismatch_autorebuild.py`, `test_cycle24_vector_atomic_rebuild.py`, `test_cycle28_first_query_observability.py`, no edit (`git diff main -- tests/` touches only the new file) | pass |
+| 5 | `python scripts/verify_docs.py`: collected tests 3791, test file count 216; `CLAUDE.md` State line reads `3791 tests across 216 test files`; changelog entries updated to 6 tests / +6 | pass (reviewer-verified) |
+
+Attempt 3 (repair of R3 decision 2, verdict `.review/T1-KBFIX-VECDIM.r3.2.1f674c2a.json` on `ede79d0`). RED commit `f13eaad`, GREEN commit `12e7702`.
+
+Finding (class: schema-object-type-confusion) at `src/kb/query/embeddings.py:723`: the `sqlite_master` lookup had no `type = 'table'` filter, which the design in `specs/kb-defects-1.md` names. A trigger named `vec_pages` listed before the table supplied its own `float[N]` (R1), and a view named `vec_pages` with no table returned a dim (R2). Repair: `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'vec_pages'`. This is the only `sqlite_master` read in the file. SQLite accepted the requested order (trigger on a helper table first, then the `vec0` table); `sqlite_master` lists the trigger row first.
+
+| Input form of the lookup | Covering test | Result |
+|---|---|---|
+| real `vec0` table (listed as type `table`) | `test_built_index_returns_matching_page_first`, `test_stored_dim_read_from_declaration_when_pragma_type_is_empty` | pass |
+| plain table without `float[N]` | `test_table_without_dim_warns_once_per_instance_naming_db`, `test_schema_warning_logged_once_under_concurrent_first_reads` | pass |
+| missing table | `test_missing_table_returns_zero_without_warning` | pass |
+| trigger named `vec_pages` (`float[9]`) before a real `float[7]` table | `tests/test_kbfix_vector_stored_dim.py::test_trigger_named_vec_pages_does_not_supply_the_dim` | pass |
+| view named `vec_pages` (`float[9]`), no table | `tests/test_kbfix_vector_stored_dim.py::test_view_named_vec_pages_counts_as_missing_table` | pass |
+
+RED on `ede79d0`: 2 failed, 6 passed; both `AssertionError` (`assert 9 == 7`, `assert 9 == 0`), no import or collection error. GREEN: DoD 36 passed.
+
+Acceptance table, corrected for attempt 3:
+
+| Acceptance item | Proving test or command | Result |
+|---|---|---|
+| 1 | `test_built_index_returns_matching_page_first` | pass |
+| 2 | `test_stored_dim_read_from_declaration_when_pragma_type_is_empty`, `test_trigger_named_vec_pages_does_not_supply_the_dim` | pass |
+| 3 | `test_missing_table_returns_zero_without_warning`, `test_view_named_vec_pages_counts_as_missing_table`, `test_table_without_dim_warns_once_per_instance_naming_db`, `test_schema_warning_logged_once_under_concurrent_first_reads` | pass |
+| 4 | DoD arm 2: the 4 existing test files, no edit (`git diff main -- tests/` touches only the new file) | pass |
+| 5 | `python scripts/verify_docs.py`: collected tests 3793, test file count 216; `CLAUDE.md` State line reads `3793 tests across 216 test files`; changelog entries updated to 8 tests / +8 | pass (reviewer-verified) |
