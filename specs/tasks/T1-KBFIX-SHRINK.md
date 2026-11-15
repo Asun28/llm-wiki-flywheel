@@ -10,13 +10,14 @@ allow_paths:
   - src/kb/mcp/quality.py
   - src/kb/config.py
   - tests/test_kbfix_refine_shrink_guard.py
+  - tests/test_workflow_e2e.py
   - BACKLOG.md
   - docs/reference/mcp-servers.md
   - CHANGELOG.md
   - CHANGELOG-history.md
   - CLAUDE.md
   - specs/tasks/T1-KBFIX-SHRINK.md
-dod_command: ruff check src/ tests/ && python -m pytest tests/test_kbfix_refine_shrink_guard.py tests/test_refiner.py tests/test_review.py tests/test_cycle19_refiner_two_phase.py tests/test_cycle88_rollback_reporting.py tests/test_mcp_quality_new.py tests/test_mcp_phase2.py tests/test_fixes_v050.py -q
+dod_command: ruff check src/ tests/ && python -m pytest tests/test_kbfix_refine_shrink_guard.py tests/test_refiner.py tests/test_review.py tests/test_cycle19_refiner_two_phase.py tests/test_cycle88_rollback_reporting.py tests/test_mcp_quality_new.py tests/test_mcp_phase2.py tests/test_fixes_v050.py tests/test_workflow_e2e.py -q
 dod_exit: 0
 requirements:
   - R1. `kb.config` shall define `REFINE_MIN_BODY_RATIO = 0.5`, read by `refine_page` at call time.
@@ -30,11 +31,11 @@ acceptance:
   - 3. Same file: a page with malformed frontmatter and a short body returns the frontmatter error, not the shrink error; a whitespace-only body returns the empty-body error; a page with an empty body accepts any non-empty body; CRLF in either body does not change the counts. [R3] [dod arm 2]
   - 4. Same file: `REFINE_MIN_BODY_RATIO` monkeypatched to 0.9 refuses a 150-character body on the 200-character page (call-time read). [R1] [dod arm 2]
   - 5. Same file: `kb_refine_page` (sync module attribute) returns an `Error:` string for the 1% body, and with `allow_shrink=True` writes it; `inspect.signature(refine_page).parameters["allow_shrink"]` is keyword-only with default `False`. [R5] [dod arm 2]
-  - 6. The existing refine, review, two-phase, rollback-reporting, MCP quality and v050 tests in the DoD pass with no edit to them. [dod arm 2]
+  - 6. The existing refine, review, two-phase, rollback-reporting, MCP quality, v050 and workflow-e2e tests in the DoD pass. The only edit to an existing test is the one the floor forces (revision 1): `tests/test_workflow_e2e.py::test_e2e_ingest_refine_requery` replaces a whole generated entity page with a short marker on purpose, so its `refine_page` call passes `allow_shrink=True`; none of its assertions change. [dod arm 2]
   - 7. The `kb_refine_page` entry in BACKLOG.md (`mcp/quality.py` ... accepts a body shorter than the page it replaces) is deleted; `docs/reference/mcp-servers.md` names the `allow_shrink` argument; `CHANGELOG.md` (Unreleased) and `CHANGELOG-history.md` each carry one entry under this card id; the counts in the `State` line of `CLAUDE.md` equal `scripts/verify_docs.py` output on the candidate (reviewer-verified).
 depends_on: []
 budget: 250
-sweep: "Ten paths: three src files, one new test file, five doc files, this card. Callers of `refine_page` in src/: `mcp/quality.py:103` only. A read-only probe over the 19 test files that call `refine_page` (595 passed, 2026-11-15) found one call under 50%, `tests/test_fixes_v050.py::test_refine_page_invalid_frontmatter`, refused earlier by the frontmatter gate, so R3's placement keeps it unchanged. No snapshot file pins the `kb_refine_page` schema."
+sweep: "Eleven paths: three src files, one new and one existing test file, five doc files, this card. Callers of `refine_page` in src/: `mcp/quality.py:103` only. A read-only probe over the 19 test files that call `refine_page` (595 passed, 2026-11-15) found one call under 50%, `tests/test_fixes_v050.py::test_refine_page_invalid_frontmatter`, refused earlier by the frontmatter gate. The probe missed `tests/test_workflow_e2e.py::test_e2e_ingest_refine_requery` (47 of 242 characters), which CI run 43695280342 on candidate e5f967b found; revision 1 adds that file. No snapshot file pins the `kb_refine_page` schema."
 forbid: [weakening or removing an existing refine guard, a floor that counts frontmatter characters, a shrink override without a history record, a model call or network request in tests]
 non_goals: [a CLI refine command, a word- or token-based floor, guarding growth (a longer body), refusing on the ratio for pages written by ingest or compile (only `refine_page`)]
 diagnosis:
@@ -54,7 +55,7 @@ Issue #162 and the BACKLOG entry for `kb_refine_page`: the knowledge bench measu
 
 ## Acceptance (DoD = command + exit code + assertion; paired with the closed `acceptance:` list)
 ```powershell
-ruff check src/ tests/ && python -m pytest tests/test_kbfix_refine_shrink_guard.py tests/test_refiner.py tests/test_review.py tests/test_cycle19_refiner_two_phase.py tests/test_cycle88_rollback_reporting.py tests/test_mcp_quality_new.py tests/test_mcp_phase2.py tests/test_fixes_v050.py -q
+ruff check src/ tests/ && python -m pytest tests/test_kbfix_refine_shrink_guard.py tests/test_refiner.py tests/test_review.py tests/test_cycle19_refiner_two_phase.py tests/test_cycle88_rollback_reporting.py tests/test_mcp_quality_new.py tests/test_mcp_phase2.py tests/test_fixes_v050.py tests/test_workflow_e2e.py -q
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
