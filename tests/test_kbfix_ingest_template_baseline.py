@@ -103,52 +103,97 @@ def test_existing_unequal_template_value_is_kept_and_scan_flags_type(
     assert listed == {r.resolve() for r in raws}
 
 
+# Manifest-lock acquisitions made by ONE successful first ingest of a source, all
+# through `kb.ingest.pipeline.file_lock(HASH_MANIFEST)`:
+#   1. `_is_duplicate_content_locked` - the read-only duplicate check;
+#   2. `_clear_ingest_manifest_entry` - the pre-body entry clear (the lock is
+#      taken even when the key is absent; it saves only when the key exists);
+#   3. `_commit_ingest_manifest` - the commit, which writes the source hash and
+#      the template baseline in one save.
+# Writing the baseline must not add an acquisition.
+_MANIFEST_LOCKS_PER_INGEST = 3
+
+
+class _ManifestSpy:
+    """Record each `file_lock(HASH_MANIFEST)` acquisition and the saves inside it."""
+
+    def __init__(self, monkeypatch) -> None:
+        self.acquisitions = 0
+        self.active: int | None = None  # 1-based index of the held acquisition
+        self.saves: list[tuple[dict, int | None]] = []  # (snapshot, acquisition)
+        real_file_lock = pipeline_mod.file_lock
+        real_save = compiler_mod.save_manifest
+        manifest_path = Path(compiler_mod.HASH_MANIFEST)
+
+        @contextmanager
+        def spy_lock(path, *args, **kwargs):
+            is_manifest = Path(path) == manifest_path
+            with real_file_lock(path, *args, **kwargs):
+                if not is_manifest:
+                    yield
+                    return
+                self.acquisitions += 1
+                outer, self.active = self.active, self.acquisitions
+                try:
+                    yield
+                finally:
+                    self.active = outer
+
+        def spy_save(manifest, *args, **kwargs):
+            self.saves.append((dict(manifest), self.active))
+            return real_save(manifest, *args, **kwargs)
+
+        monkeypatch.setattr(pipeline_mod, "file_lock", spy_lock)
+        monkeypatch.setattr(compiler_mod, "save_manifest", spy_save)
+
+    def reset(self) -> None:
+        self.acquisitions = 0
+        self.saves = []
+
+
 def test_source_hash_and_template_key_land_in_one_locked_save(
     tmp_kb_env: Path, monkeypatch
 ) -> None:
-    """Acceptance 3 [R1]."""
+    """Acceptance 3 [R1]: one save, inside the commit acquisition, no extra lock."""
     raw = _seed_raw(tmp_kb_env, "tpl-one-save")
     source_ref = "raw/articles/tpl-one-save.md"
     source_hash = hash_bytes(raw.read_bytes())
     expected_tpl = compiler_mod._template_hashes()[_TEMPLATE_KEY]
 
-    held = {"depth": 0}
-    acquisitions: list[int] = []  # save count observed at each lock entry
-    saves: list[tuple[dict, int]] = []  # (manifest snapshot, lock depth)
-
-    real_file_lock = pipeline_mod.file_lock
-    real_save = compiler_mod.save_manifest
-    manifest_path = Path(compiler_mod.HASH_MANIFEST)
-
-    @contextmanager
-    def spy_lock(path, *args, **kwargs):
-        is_manifest = Path(path) == manifest_path
-        with real_file_lock(path, *args, **kwargs):
-            if is_manifest:
-                held["depth"] += 1
-                acquisitions.append(len(saves))
-            try:
-                yield
-            finally:
-                if is_manifest:
-                    held["depth"] -= 1
-
-    def spy_save(manifest, *args, **kwargs):
-        saves.append((dict(manifest), held["depth"]))
-        return real_save(manifest, *args, **kwargs)
-
-    monkeypatch.setattr(pipeline_mod, "file_lock", spy_lock)
-    monkeypatch.setattr(compiler_mod, "save_manifest", spy_save)
-
+    spy = _ManifestSpy(monkeypatch)
     _ingest(tmp_kb_env, raw)
 
-    with_source = [(m, d) for m, d in saves if m.get(source_ref) == source_hash]
-    with_template = [(m, d) for m, d in saves if _TEMPLATE_KEY in m]
+    assert spy.acquisitions == _MANIFEST_LOCKS_PER_INGEST
+    with_source = [(m, a) for m, a in spy.saves if m.get(source_ref) == source_hash]
+    with_template = [(m, a) for m, a in spy.saves if _TEMPLATE_KEY in m]
     assert len(with_source) == 1
     assert with_template == with_source
-    snapshot, depth = with_source[0]
+    snapshot, acquisition = with_source[0]
     assert snapshot[_TEMPLATE_KEY] == expected_tpl
-    assert depth == 1
+    # The commit is the last acquisition; it holds exactly this one save.
+    assert acquisition == _MANIFEST_LOCKS_PER_INGEST
+    assert [a for _, a in spy.saves] == [_MANIFEST_LOCKS_PER_INGEST]
+
+
+def test_baseline_write_adds_no_manifest_lock_acquisition(tmp_kb_env: Path, monkeypatch) -> None:
+    """Acceptance 3 [R1]: an ingest that writes the baseline and one that finds it
+    present make the same number of manifest-lock acquisitions."""
+    first = _seed_raw(tmp_kb_env, "tpl-lock-writes")
+    second = _seed_raw(tmp_kb_env, "tpl-lock-present")
+    spy = _ManifestSpy(monkeypatch)
+
+    _ingest(tmp_kb_env, first)
+    writes_baseline = spy.acquisitions
+    assert _TEMPLATE_KEY in compiler_mod.load_manifest()
+
+    spy.reset()
+    _ingest(tmp_kb_env, second)
+    baseline_present = spy.acquisitions
+
+    assert (writes_baseline, baseline_present) == (
+        _MANIFEST_LOCKS_PER_INGEST,
+        _MANIFEST_LOCKS_PER_INGEST,
+    )
 
 
 def test_absent_template_file_writes_no_template_key(
