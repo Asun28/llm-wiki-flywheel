@@ -1,7 +1,7 @@
 ---
 id: T1-KBFIX-TPLBASE
 title: "`ingest_source` records the `_template/<type>` baseline when the manifest has none, so `find_changed_sources` lists nothing on a clean ingest-only wiki (#160)"
-status: todo
+status: merged
 branch: T1-KBFIX-TPLBASE
 worktree: D:\wt\llm-wiki-flywheel\T1-KBFIX-TPLBASE
 plan_ref: plans/kb-defects-1.md#order-of-work
