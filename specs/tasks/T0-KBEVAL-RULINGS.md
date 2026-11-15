@@ -1,7 +1,7 @@
 ---
 id: T0-KBEVAL-RULINGS
 title: "`bench/knowledge/labels.jsonl` records the owner's rulings on the three label disagreements, and the `Labels` section of `docs/knowledge-baseline.md` states the figures recomputed from it"
-status: todo
+status: merged
 branch: T0-KBEVAL-RULINGS
 worktree: D:\wt\llm-wiki-flywheel\T0-KBEVAL-RULINGS
 allow_paths:
