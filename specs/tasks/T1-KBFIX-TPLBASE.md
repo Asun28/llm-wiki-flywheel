@@ -64,7 +64,7 @@ Attempt 1. RED commit `37b5423`, GREEN commit `4430b05`. Tests: `tests/test_kbfi
 | 3. source hash and `_template/article` land in one save inside one `file_lock(HASH_MANIFEST)` acquisition | `test_source_hash_and_template_key_land_in_one_locked_save` | pass |
 | 4. template file absent: source hash written, no `_template/` key | `test_absent_template_file_writes_no_template_key` | pass |
 | 5. existing ingest, crash-atomicity, manifest and compile tests pass unedited | DoD arm 2: `test_ingest.py`, `test_cycle83_ingest_crash_atomicity.py`, `test_cycle17_compile_manifest.py`, `test_cycle19_manifest_key_consistency.py`, `test_compile.py` (`git diff main -- tests/` touches only the new file); 265 passed, 1 skipped | pass |
-| 6. one entry under this card id in `CHANGELOG.md` `[Unreleased]` and `CHANGELOG-history.md`; `CLAUDE.md` State counts equal `scripts/verify_docs.py` | `python scripts/verify_docs.py`: collected tests 3798, test file count 217, "docs in sync"; State line reads `3798 tests across 217 test files` | pass (reviewer-verified) |
+| 6. one entry under this card id in `CHANGELOG.md` `[Unreleased]` and `CHANGELOG-history.md`; `CLAUDE.md` State counts equal `scripts/verify_docs.py` | `python scripts/verify_docs.py`: collected tests 3798 (attempt 1; 3799 after attempt 2), test file count 217, "docs in sync"; State line reads `3798 tests across 217 test files` (attempt 1) | pass (reviewer-verified) |
 
 RED against the unfixed code (`main` at `aaa4bce`): 3 failed, 2 passed. Failures are all `AssertionError`: the scan listed the three ingested sources (acceptance 1); no save carried `_template/article` (acceptance 3); the manifest had no `_template/article` after the mid-ingest edit (`None == <pre-edit hash>`, lead design test). No import or collection error. The 2 passes are acceptance 2 and 4, which guard behaviour the unfixed code already met (it never wrote a template key). GREEN: DoD exit 0, 265 passed, 1 skipped.
 
@@ -75,3 +75,28 @@ RED against the unfixed code (`main` at `aaa4bce`): 3 failed, 2 passed. Failures
 | key present, unequal: left byte-equal, scan lists the type's sources | `test_existing_unequal_template_value_is_kept_and_scan_flags_type` | pass |
 | template file absent: no `_template/` key written | `test_absent_template_file_writes_no_template_key` | pass |
 | template edited mid-ingest: pre-edit hash recorded, scan lists the source | `test_template_edited_mid_ingest_records_pre_edit_hash` (edits a tmp `article.yaml` via a wrapper around `_run_ingest_body`; `kb.compile.compiler.TEMPLATES_DIR` patched) | pass |
+
+Attempt 2 (repair of R3 decision 1, verdict `.review/T1-KBFIX-TPLBASE.r3.1.10f9c616.json` on `3839d33`). Test commit `7dda115`; no src change.
+
+Finding F1 (class: missing-lock-count-assertion) at `tests/test_kbfix_ingest_template_baseline.py:151`: the acceptance-3 spy recorded manifest-lock acquisitions but never asserted them, so `depth == 1` passed with extra sequential acquisitions. Repair: a shared `_ManifestSpy` counts only `pipeline.file_lock` calls whose path is `HASH_MANIFEST` and tags each save with the acquisition it ran in. The literal `_MANIFEST_LOCKS_PER_INGEST = 3` names each acquisition of one first ingest: (1) `_is_duplicate_content_locked`, the duplicate check; (2) `_clear_ingest_manifest_entry`, the pre-body clear (lock taken even when the key is absent, no save then); (3) `_commit_ingest_manifest`, the commit. The count matched the candidate without a src change, so there is no real extra acquisition.
+
+RED = mutation run (not committed). Mutation in `_commit_ingest_manifest`: save the source hash, release the lock, then take a SECOND `file_lock(HASH_MANIFEST)` to re-read and write `_template/<type>` when absent. Result: 2 failed, 4 passed:
+
+```
+E       assert 4 == 3
+E        +  where 4 = <tests.test_kbfix_ingest_template_baseline._ManifestSpy object at 0x000002E17EFC9940>.acquisitions
+E       assert (4, 4) == (3, 3)
+FAILED tests/test_kbfix_ingest_template_baseline.py::test_source_hash_and_template_key_land_in_one_locked_save
+FAILED tests/test_kbfix_ingest_template_baseline.py::test_baseline_write_adds_no_manifest_lock_acquisition
+2 failed, 4 passed in 1.56s
+```
+
+`src/kb/ingest/pipeline.py` restored from git after the run (`git diff --quiet HEAD -- src/` clean). GREEN (unmutated candidate): 6 passed.
+
+Corrected acceptance-3 row:
+
+| Acceptance item | Proving test or command | Result |
+|---|---|---|
+| 3. source hash and `_template/article` land in one save inside one `file_lock(HASH_MANIFEST)` acquisition; no extra manifest-lock acquisition | `test_source_hash_and_template_key_land_in_one_locked_save` (exactly 3 acquisitions; the one save carrying both keys runs inside acquisition 3, the commit, and is the only save), `test_baseline_write_adds_no_manifest_lock_acquisition` (ingest that writes the baseline and ingest that finds it present: `(3, 3)`) | pass |
+
+Acceptance 6 for attempt 2: `python scripts/verify_docs.py`: collected tests 3799, test file count 217, "docs in sync"; State line reads `3799 tests across 217 test files`; changelog entries updated to 6 tests / +6.
