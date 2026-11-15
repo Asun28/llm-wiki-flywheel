@@ -503,21 +503,27 @@ class _RecordingRe:
         return recording
 
 
-@pytest.mark.parametrize(
-    "lines",
-    [_CR_PAGE, [line for line in _CR_PAGE if line not in ("## Context", "Bread is baked.")]],
-    ids=["context-section", "no-context-section"],
-)
-def test_body_writer_patterns_never_see_a_cr(tmp_path, monkeypatch, lines):
+_NO_CONTEXT_PAGE = [line for line in _CR_PAGE if line not in ("## Context", "Bread is baked.")]
+_RECORDER_INPUTS = {
+    "direct-ctx": {"ctx": "## Context\r\n\r\nBread rises.\r\nBake it.\rCool it."},
+    "extraction": {
+        "name": "Bread",
+        "extraction": {
+            "core_argument": "Bread rises.\r\nBake it.\rCool it.",
+            "key_claims": ["Bread keeps.\r\nFor days."],
+        },
+    },
+}
+
+
+@pytest.mark.parametrize("lines", [_CR_PAGE, _NO_CONTEXT_PAGE], ids=["context", "no-context"])
+@pytest.mark.parametrize("source", list(_RECORDER_INPUTS))
+def test_body_writer_patterns_never_see_a_cr(tmp_path, monkeypatch, lines, source):
     seen: list[str] = []
     monkeypatch.setattr("kb.ingest.pipeline.re", _RecordingRe(seen))
     page = _write(tmp_path / "crlf" / "bread.md", _page(_CRLF, lines))
 
-    _update_existing_page_body(
-        page_path=page,
-        source_ref=_NEW_SOURCE,
-        ctx="## Context\r\n\r\nBread rises.\r\nBake it.\rCool it.",
-    )
+    _update_existing_page(page, _NEW_SOURCE, **_RECORDER_INPUTS[source])
 
     assert any("Mentioned in raw/articles/b.md" in s for s in seen)
     assert [s for s in seen if "\r" in s] == []
