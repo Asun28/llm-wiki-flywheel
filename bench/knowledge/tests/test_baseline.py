@@ -561,6 +561,43 @@ def test_label_checks_cover_every_rendered_row_table_and_figure():
         assert case != text and labels_html_errors(case) != []
 
 
+def test_label_checks_find_figures_by_name_and_label_rows_in_any_table():
+    # R3 decision 3 of T0-KBEVAL-RULINGS: a second figure is a second figure whatever
+    # follows its name (a signed value, a value in the next paragraph, image alt text),
+    # and a row named after a label or a band shows a second value in any table.
+    rows, text = label_rows(), report()
+    figure = "- Rows with an owner ruling:"
+    figure_cases = [
+        insert_after(text, figure, "* Rows with an owner ruling: +2\n"),
+        insert_after(text, figure, "* Rows with a null final: +2\n"),
+        insert_after(text, figure, "\nRows with an owner ruling:\n\n2\n"),
+        insert_after(text, figure, "\n![Rows with an owner ruling: 2](x.png)\n"),
+    ]
+    label_cases = [
+        insert_after(
+            text,
+            "`final` by containment band:",
+            "\n| label | labelA | labelB | final |\n|---|---|---|---|\n| supported | 0 | 0 | 0 |\n",
+        ),
+        insert_after(
+            text,
+            "Every disagreement",
+            "\n| Count | labelA | labelB | final |\n|---|---|---|---|\n| supported | 0 | 0 | 0 |\n",
+        ),
+    ]
+    band_cases = [
+        insert_after(
+            text, "Every disagreement", "\n| Group | supported |\n|---|---|\n| low | 0 |\n"
+        ),
+    ]
+    for case in figure_cases:
+        assert case != text and figure_errors(case, rows) != []
+    for case in label_cases:
+        assert case != text and label_table_errors(case, rows) != []
+    for case in band_cases:
+        assert case != text and band_table_errors(case, rows) != []
+
+
 def test_table_checks_reject_an_extra_row_placed_before_the_correct_one():
     # R3 decision 1 of T0-KBEVAL-RULINGS: a wrong row ahead of the right one with the
     # same name must not pass, nor may an exact copy of a correct row.
