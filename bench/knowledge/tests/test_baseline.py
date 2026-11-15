@@ -626,6 +626,39 @@ def test_label_checks_find_figures_by_name_and_label_rows_in_any_table():
         assert case != text and band_table_errors(case, rows) != []
 
 
+# -- T1-KBEVAL-ALTFIG acceptance 1 and 2 [R1] ------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("figure", "alt"),
+    [
+        ("- Rows with an owner ruling:", "Rows with an **owner** ruling: 2"),
+        ("- Rows with a null final:", "Rows with a *null* final: 2"),
+    ],
+    ids=["owner-ruling", "null-final"],
+)
+def test_a_second_figure_in_formatted_image_alt_text_is_found(figure, alt):
+    # Issue #163: alt text shows as it renders when the image does not load, so
+    # `**owner**` reads "owner" and the figure name is shown a second time.
+    rows, text = label_rows(), report()
+    case = insert_after(text, figure, f"\n![{alt}](x.png)\n")
+    assert case != text and figure_errors(case, rows) != []
+
+
+def first_inline(text: str):
+    """The first inline token markdown-it-py parses from `text`."""
+    return next(token for token in MARKDOWN.parse(text) if token.type == "inline")
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [("![a **b** `c`](x.png)", "a b c"), ("![a <b>x</b>](x.png)", "a x")],
+    ids=["markup", "raw-html"],
+)
+def test_plain_renders_image_alt_text_as_it_shows(source, expected):
+    assert plain(first_inline(source)) == expected
+
+
 def test_table_checks_reject_an_extra_row_placed_before_the_correct_one():
     # R3 decision 1 of T0-KBEVAL-RULINGS: a wrong row ahead of the right one with the
     # same name must not pass, nor may an exact copy of a correct row.
