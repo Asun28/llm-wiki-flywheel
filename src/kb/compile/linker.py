@@ -1,6 +1,7 @@
 """Wikilink resolution, cross-referencing, and backlink management."""
 
 import logging
+import os
 import re
 import uuid
 from pathlib import Path
@@ -78,21 +79,41 @@ def _unmask_code_blocks(text: str, masked: list[str], prefix: str) -> str:
     return text
 
 
-# A CR not followed by LF. `FRONTMATTER_RE` and `_ATX_HEADING_RE` recognise
-# only LF and CRLF line ends.
-_LONE_CR_RE = re.compile(r"\r(?!\n)")
+_LINE_END_RE = re.compile(r"\r\n|\r|\n")
 
 
-def _read_page_text(path: Path) -> str:
-    """Read a page the injectors may rewrite, keeping its CRLF and LF line ends (#168).
+def _read_page(path: Path) -> tuple[str, list[str]]:
+    """Read a page the injectors may rewrite (#168).
 
-    ``Path.read_text`` turns every CRLF and lone CR into LF, and
-    ``atomic_text_write`` writes the text as given, so a CRLF page came back
-    with LF. ``Path.read_text(newline="")`` needs Python 3.13, so the bytes
-    are decoded here. A lone CR still becomes LF: kept, it would hide a
-    lone-CR page's frontmatter and headings from the masks.
+    Returns the text with every line end turned into LF, exactly what
+    ``Path.read_text`` returns and what the frontmatter, heading and code
+    patterns are written against, plus the page's own line ends in order
+    (``"\\r\\n"``, or ``"\\n"`` for an LF or a lone CR) for
+    `_restore_line_ends`.
     """
-    return _LONE_CR_RE.sub("\n", path.read_bytes().decode("utf-8"))
+    raw = path.read_bytes().decode("utf-8")
+    ends = ["\r\n" if m.group() == "\r\n" else "\n" for m in _LINE_END_RE.finditer(raw)]
+    return _LINE_END_RE.sub("\n", raw), ends
+
+
+def _restore_line_ends(text: str, original: str, ends: list[str]) -> str:
+    """Write ``text``, an edit of ``original``, with the page's own line ends.
+
+    ``original`` and ``ends`` come from `_read_page`: one entry of ``ends`` per
+    LF of ``original``. The edit is one splice, so each LF before it and after
+    it keeps its page line end; a splice that spans a line end (a title holding
+    a line break) drops that end, and an LF inside the inserted text gets LF.
+    """
+    if "\r\n" not in ends:
+        return text
+    head = len(os.path.commonprefix([original, text]))
+    tail = len(os.path.commonprefix([original[head:][::-1], text[head:][::-1]]))
+    n_head = original[:head].count("\n")
+    n_tail = original[len(original) - tail :].count("\n")
+    n_mid = text[head : len(text) - tail].count("\n")
+    new_ends = ends[:n_head] + ["\n"] * n_mid + ends[len(ends) - n_tail :]
+    parts = text.split("\n")
+    return "".join(part + end for part, end in zip(parts, new_ends, strict=False)) + parts[-1]
 
 
 # ATX heading line: 0-3 spaces, 1-6 `#`, then a space, a tab or end of line.
@@ -279,7 +300,7 @@ def inject_wikilinks(
         # below is the authoritative decision; this pre-scan only gates lock
         # acquisition.
         try:
-            peek_content = _read_page_text(page_path)
+            peek_content, _peek_ends = _read_page(page_path)
         except (OSError, UnicodeDecodeError):
             continue
 
@@ -301,7 +322,7 @@ def inject_wikilinks(
         try:
             with page_lock(page_path, timeout=_INJECT_LOCK_TIMEOUT):
                 try:
-                    content = _read_page_text(page_path)
+                    content, line_ends = _read_page(page_path)
                 except (OSError, UnicodeDecodeError):
                     continue
 
@@ -353,7 +374,10 @@ def inject_wikilinks(
                 # code block).
                 new_body = _unmask_code_blocks(new_body, masked_code, mask_prefix)
                 if new_body != original_body:
-                    atomic_text_write(frontmatter_section + new_body, page_path)
+                    atomic_text_write(
+                        _restore_line_ends(frontmatter_section + new_body, content, line_ends),
+                        page_path,
+                    )
                     updated.append(pid)
                     logger.info("Injected wikilink to %s in %s", target_page_id, pid)
         except TimeoutError:
@@ -469,7 +493,7 @@ def inject_wikilinks_batch(
         page_records = []
         for pp in page_paths:
             try:
-                content = _read_page_text(pp)
+                content, _ends = _read_page(pp)
             except (OSError, UnicodeDecodeError):
                 continue
             page_records.append(
@@ -554,7 +578,7 @@ def _process_inject_chunk(
         try:
             with page_lock(page_path, timeout=_INJECT_LOCK_TIMEOUT):
                 try:
-                    fresh_content = _read_page_text(page_path)
+                    fresh_content, line_ends = _read_page(page_path)
                 except (OSError, UnicodeDecodeError):
                     continue
 
@@ -606,7 +630,12 @@ def _process_inject_chunk(
 
                 new_body = _unmask_code_blocks(new_body, masked_code, mask_prefix)
                 if new_body != original_body:
-                    atomic_text_write(frontmatter_section + new_body, page_path)
+                    atomic_text_write(
+                        _restore_line_ends(
+                            frontmatter_section + new_body, fresh_content, line_ends
+                        ),
+                        page_path,
+                    )
                     result[target_pid].append(pid)
                     # Update in-memory record so subsequent chunk iterations
                     # observe the post-write state.

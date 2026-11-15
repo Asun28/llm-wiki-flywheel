@@ -61,6 +61,23 @@ def test_page_keeps_its_line_endings(tmp_wiki, api, nl):
     assert path.read_bytes() == _page(nl, ["## Hydration", "", f"{_LINK} matters."])
 
 
+@pytest.mark.parametrize("api", _APIS)
+def test_crlf_page_without_a_final_line_end_keeps_its_ends(tmp_wiki, api):
+    path = _write(tmp_wiki, _page("\r\n", ["## Hydration", "", "Hydration matters."])[:-2])
+    assert _inject(api, tmp_wiki) == ["entities/bread"]
+    assert path.read_bytes() == _page("\r\n", ["## Hydration", "", f"{_LINK} matters."])[:-2]
+
+
+@pytest.mark.parametrize("api", _APIS)
+def test_title_spanning_a_crlf_line_end_keeps_the_other_ends(tmp_wiki, api):
+    # The link replaces "Hydration<CRLF>matters", so that one line end goes and
+    # every other line end of the page stays CRLF.
+    path = _write(tmp_wiki, _page("\r\n", ["## Notes", "", "Hydration", "matters here.", "End."]))
+    assert _inject(api, tmp_wiki, "Hydration\nmatters") == ["entities/bread"]
+    linked = f"[[{_TARGET}|Hydration matters]] here."
+    assert path.read_bytes() == _page("\r\n", ["## Notes", "", linked, "End."])
+
+
 # --- Acceptance 2 [R1] -----------------------------------------------------
 
 _MIXED_BODY = "## Hydration\r\n\nIntro.\r\nHydration matters.\nLast line.\r\n"
