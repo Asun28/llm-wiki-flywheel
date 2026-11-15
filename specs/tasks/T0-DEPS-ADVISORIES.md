@@ -1,6 +1,6 @@
 ---
 id: T0-DEPS-ADVISORIES
-title: "`requirements.txt` pins soupsieve 4.1.1, dnspython 2.9.2 and opentelemetry-api 1.45.2, closing the six open Dependabot alerts, and a test holds each pin at or above its advisory's first patched version"
+title: "`requirements.txt` pins soupsieve 4.0.1, dnspython 2.9.2 and opentelemetry-api 1.45.2, closing the six open Dependabot alerts, and a test holds each pin at or above its advisory's first patched version"
 status: todo
 branch: T0-DEPS-ADVISORIES
 worktree: D:\wt\llm-wiki-flywheel\T0-DEPS-ADVISORIES
@@ -15,7 +15,7 @@ allow_paths:
 dod_command: ruff check tests/test_dep_advisory_floors.py && python -m pytest tests/test_dep_advisory_floors.py tests/test_cycle65_dep_pinning.py -q && python -m pip install --dry-run --ignore-installed --quiet -r requirements.txt
 dod_exit: 0
 requirements:
-  - R1. `requirements.txt` shall pin `soupsieve==4.1.1`, `dnspython==2.9.2` and `opentelemetry-api==1.45.2`, and no other line of the file shall change.
+  - R1. `requirements.txt` shall pin `soupsieve==4.0.1`, `dnspython==2.9.2` and `opentelemetry-api==1.45.2`, and no other line of the file shall change.
   - R2. `tests/test_dep_advisory_floors.py` shall fail when the pinned version of soupsieve, dnspython or opentelemetry-api in `requirements.txt` is below the first patched version of its advisories (4.0.0, 2.9.2, 1.45.2), and when a package's pin line is missing.
   - R3. `SECURITY.md` (`Last reviewed`), `CHANGELOG.md` (Unreleased) and `CHANGELOG-history.md` shall each record this sweep under this card id, naming the alerts and GHSA ids, and the `State` line of `CLAUDE.md` shall match the collected test count and test-file count.
 acceptance:
@@ -46,7 +46,7 @@ Three pin bumps in `requirements.txt` that close the six open Dependabot alerts 
 | #239 | high | soupsieve | GHSA-mmhr-3c5m-f64f | 4.0.0 |
 | #238 | medium | soupsieve | GHSA-4j63-6c4x-wfg4 | 2.10.0 |
 
-soupsieve goes to 4.1.1 rather than 4.0.0: 4.1 and 4.1.1 fix further quadratic-time selector paths (`nth ... of S`, `:has(~ ...)`, `:placeholder-shown`, `:lang()`) that are in the same class as #238 and #239.
+soupsieve goes to 4.0.1 rather than 4.0.0: 4.0.1 fixes two more quadratic-time matching paths (`:has()` on deeply nested documents, the child combinator under an expensive parent), the same class as #238 and #239. It stops short of 4.1.1, which fixes further such paths, because 4.1.1 was under 48 hours old on the day of this card, and the 2026-11-05 sweep's rule keeps pins off releases that new.
 
 ## Acceptance (DoD = command + exit code + assertion; paired with the closed `acceptance:` list)
 ```powershell
@@ -54,3 +54,11 @@ ruff check tests/test_dep_advisory_floors.py && python -m pytest tests/test_dep_
 ```
 - Expected exit code: 0
 - Assertion: the floor tests pass and the full pin set resolves with no conflict.
+
+## Attempt evidence
+| Item | Proof | Result |
+|---|---|---|
+| 1 | `pytest tests/test_dep_advisory_floors.py`: RED at 8948f12 (old pins) 3 failed on the floor assertion, 2 checker tests passed; on the candidate 5 passed | pass |
+| 2 | `git diff origin/main...HEAD -- requirements.txt`: exactly `soupsieve` 2.9 → 4.0.1, `dnspython` 2.9.0 → 2.9.2, `opentelemetry-api` 1.45.1 → 1.45.2 | pass |
+| 3 | DoD arm 3, `pip install --dry-run --ignore-installed --quiet -r requirements.txt`: exit 0; `.venv` on the new pins: `pip check` clean, `pip-audit` no known vulnerabilities | pass |
+| 4 | CHANGELOG.md, CHANGELOG-history.md, SECURITY.md entries; CLAUDE.md 3855 tests / 220 files; `python scripts/verify_docs.py`: docs in sync | pass |

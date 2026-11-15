@@ -17,6 +17,17 @@ Purpose: Full per-cycle bullet-level detail archive. CHANGELOG.md is the compact
 
 > Detailed per-cycle entries live here. High-level summaries remain in [CHANGELOG.md](CHANGELOG.md); full bullet-level detail belongs here.
 
+### 2026-11-15 — T0-DEPS-ADVISORIES (Dependabot #238-#243)
+
+**Theme:** close the six open Dependabot alerts on the repository's Security page (3 high, 3 medium), all reported against `requirements.txt`. Code scanning has no analysis configured and secret scanning has no open alert. Alert #105 (`nltk`, GHSA-qx2g-xrx7-vfh8, fixed in 3.10.1) was already fixed by the `nltk==3.10.4` pin of the 2026-11-05 sweep; the API reports it `fixed`.
+
+- **`soupsieve` 2.9 → 4.0.1.** #241 GHSA-6655-6qjp-jx7x (exponential ReDoS in selector compilation, fixed 3.0.2), #240 GHSA-7g44-g9rc-x53w (uncontrolled recursion on nested pseudo-class selectors, fixed 3.0.2), #239 GHSA-mmhr-3c5m-f64f (polynomial time in the descendant combinator, fixed 4.0.0), #238 GHSA-4j63-6c4x-wfg4 (quadratic time for the general sibling combinator inside `:has()`, fixed 2.10.0). The pin is 4.0.1 rather than 4.0.0 because 4.0.1 fixes two more quadratic-time matching paths of the same class (`:has()` on deeply nested documents, the child combinator under an expensive parent). It is not 4.1.1, which fixes further such paths, because 4.1.1 was under 48 hours old on the day and the 2026-11-05 target rule keeps pins off releases that new. soupsieve is transitive only: `beautifulsoup4==4.14.3` declares `soupsieve>=1.6.1`, and nothing in `src/kb/` imports bs4 or soupsieve. The 4.0 breaking changes (the contents of `template` and `iframe` elements are no longer treated as separate documents) reach no code path in this repository.
+- **`dnspython` 2.9.0 → 2.9.2.** #243 GHSA-vvf4-9x63-8xvv (excessive memory and CPU use). Transitive via `email-validator`.
+- **`opentelemetry-api` 1.45.1 → 1.45.2.** #242 GHSA-mf5v-w3w3-f6cg (quadratic-time `traceparent` parsing). No installed package requires it; the pin stays because `requirements.txt` is the full-dev superset.
+- **Tests.** `tests/test_dep_advisory_floors.py` (new, 5 tests): each of the three pins is at or above the highest first-patched version of its advisories (all three failed on the old pins, RED at 8948f12), and the checker reports a pin below the floor and a missing pin.
+- **Verification.** `pip install --dry-run --ignore-installed -r requirements.txt` resolves the full pin set with no conflict. `.venv` now holds the three new pins: `pip check` clean, `pip-audit` reports no known vulnerabilities.
+- **Tests:** 3850 → 3855 (+5); test files 219 → 220.
+
 ### 2026-11-15 — T1-KBFIX-SHRINK (refine shrink floor, #162)
 
 **Theme:** `refine_page` accepted any non-empty body, so one `kb_refine_page` call could replace a page with 1% of it (bench: `provenance.refine.accepted_1 = 1`). Owner decision 2026-11-15: a 50% floor with an explicit override that the review history records.
