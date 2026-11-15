@@ -7,6 +7,7 @@ Fixture pages are written as bytes: `write_text` on Windows would turn every
 
 from __future__ import annotations
 
+import datetime
 import os
 from pathlib import Path
 
@@ -349,3 +350,130 @@ def test_lf_page_is_written_with_the_same_bytes_as_before(tmp_wiki, writer):
     run(page)
 
     assert page.read_bytes() == _page(_LF, expected_lines)
+
+
+# --- Acceptance 8 [R4] [R5] -------------------------------------------------
+
+
+class _FixedDate(datetime.date):
+    @classmethod
+    def today(cls) -> datetime.date:
+        return cls(2026, 1, 2)
+
+
+_CR_PAGE = [
+    *_FRONTMATTER,
+    "",
+    "# Bread",
+    "",
+    "## Context",
+    "",
+    "Bread is baked.",
+    "",
+    "## References",
+    "",
+    "- Mentioned in raw/articles/a.md",
+    "",
+    "## Evidence Trail",
+    SENTINEL,
+    "- 2026-01-01 | raw/articles/a.md | Created from source",
+]
+
+# Inserted text holding a CRLF (extraction field) or a CRLF and a lone CR (direct ctx).
+_CR_INPUTS = {
+    "extraction": {"name": "Bread", "extraction": {"core_argument": "Bread rises.\r\nBake it."}},
+    "direct-ctx": {"ctx": "## Context\n\nBread rises.\r\nBake it.\rCool it."},
+}
+# What the call wrote on an all-LF page before this card: the evidence append's
+# `read_text` turned every CR into LF.
+_CR_CONTEXT_LF_BEFORE = {
+    "extraction": ["- Bread rises.", "Bake it."],
+    "direct-ctx": ["Bread rises.", "Bake it.", "Cool it."],
+}
+
+
+def _cr_expected(inserted: list[str]) -> list[str]:
+    return [
+        "---",
+        'title: "Bread"',
+        "source:",
+        '  - "raw/articles/a.md"',
+        '  - "raw/articles/b.md"',
+        "type: entity",
+        "confidence: stated",
+        "---",
+        "",
+        "# Bread",
+        "",
+        "## Context",
+        "",
+        "Bread is baked.",
+        "### From `raw/articles/b.md`",
+        "",
+        *inserted,
+        "## References",
+        "",
+        "- Mentioned in raw/articles/a.md",
+        "- Mentioned in raw/articles/b.md",
+        "",
+        "## Evidence Trail",
+        SENTINEL,
+        "- 2026-01-02 | raw/articles/b.md | Mentioned in new source — source reference added",
+        "- 2026-01-01 | raw/articles/a.md | Created from source",
+    ]
+
+
+@pytest.mark.parametrize("source", list(_CR_INPUTS))
+def test_cr_in_inserted_context_is_written_crlf_on_crlf_page(tmp_path, monkeypatch, source):
+    monkeypatch.setattr("kb.ingest.evidence.date", _FixedDate)
+    crlf_page = _write(tmp_path / "crlf" / "bread.md", _page(_CRLF, _CR_PAGE))
+    lf_page = _lf_copy(crlf_page)
+
+    _update_existing_page(crlf_page, _NEW_SOURCE, **_CR_INPUTS[source])
+    _update_existing_page(lf_page, _NEW_SOURCE, **_CR_INPUTS[source])
+
+    written = crlf_page.read_bytes()
+    assert b"\r\r" not in written
+    assert _all_crlf(written)
+    assert len(written.splitlines()) == len(lf_page.read_bytes().splitlines())
+
+
+@pytest.mark.parametrize("source", list(_CR_INPUTS))
+def test_cr_in_inserted_context_on_lf_page_writes_the_bytes_of_before(
+    tmp_path, monkeypatch, source
+):
+    monkeypatch.setattr("kb.ingest.evidence.date", _FixedDate)
+    page = _write(tmp_path / "lf" / "bread.md", _page(_LF, _CR_PAGE))
+
+    _update_existing_page(page, _NEW_SOURCE, **_CR_INPUTS[source])
+
+    assert page.read_bytes() == _page(_LF, _cr_expected(_CR_CONTEXT_LF_BEFORE[source]))
+
+
+_CR_ACTION = "Mentioned\r\nin new source"
+
+
+def test_cr_in_evidence_action_is_written_crlf_on_crlf_page(tmp_path):
+    lines = [*_FRONTMATTER, "", "# Bread", "", *_EVIDENCE_BRANCHES["sentinel-in-section"]]
+    page = _write(tmp_path / "crlf" / "bread.md", _page(_CRLF, lines))
+
+    append_evidence_trail(page, _NEW_SOURCE, _CR_ACTION, "2026-01-02")
+
+    written = page.read_bytes()
+    assert b"\r\r" not in written
+    assert _all_crlf(written)
+    entry = f"- 2026-01-02 | {_NEW_SOURCE} | Mentioned\r\nin new source\r\n"
+    assert f"{SENTINEL}\r\n{entry}".encode() in written
+
+
+def test_cr_in_evidence_action_on_lf_page_writes_the_bytes_of_before(tmp_path):
+    lines = [*_FRONTMATTER, "", "# Bread", "", *_EVIDENCE_BRANCHES["sentinel-in-section"]]
+    page = _write(tmp_path / "lf" / "bread.md", _page(_LF, lines))
+
+    append_evidence_trail(page, _NEW_SOURCE, _CR_ACTION, "2026-01-02")
+
+    expected = _page(_LF, lines).replace(
+        f"{SENTINEL}\n".encode(),
+        f"{SENTINEL}\n- 2026-01-02 | {_NEW_SOURCE} | Mentioned\r\nin new source\n".encode(),
+    )
+    assert page.read_bytes() == expected
