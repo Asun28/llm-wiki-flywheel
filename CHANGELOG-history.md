@@ -17,6 +17,18 @@ Purpose: Full per-cycle bullet-level detail archive. CHANGELOG.md is the compact
 
 > Detailed per-cycle entries live here. High-level summaries remain in [CHANGELOG.md](CHANGELOG.md); full bullet-level detail belongs here.
 
+### 2026-11-15 — T1-KBFIX-SHRINK (refine shrink floor, #162)
+
+**Theme:** `refine_page` accepted any non-empty body, so one `kb_refine_page` call could replace a page with 1% of it (bench: `provenance.refine.accepted_1 = 1`). Owner decision 2026-11-15: a 50% floor with an explicit override that the review history records.
+
+- **`src/kb/config.py`.** `REFINE_MIN_BODY_RATIO = 0.5`, next to `MAX_NOTES_LEN`. `refine_page` reads it through `kb.config` at call time.
+- **`src/kb/review/refiner.py`.** New keyword-only `allow_shrink: bool = False`. The current body (text after the frontmatter, read under the page lock) and the new body (after CRLF to LF) are counted with `len(body.strip())`. If the new count is below ratio times the current count and `allow_shrink` is false, the call returns `{"error": "New body has N characters, under R of the current body's M (ratio X.XXX < R); pass allow_shrink=True to replace it anyway."}` and writes neither the page nor the history. The check runs after the frontmatter gates, the empty-body guard and the frontmatter-in-content guard, so those errors still win, and before the pending row. A current body of length 0 has no floor. Only a write that crosses the floor under `allow_shrink=True` adds `allow_shrink: true`, `previous_body_length` and `new_body_length` to its pending row, which becomes the applied row.
+- **`src/kb/mcp/quality.py`.** `kb_refine_page` gains `allow_shrink: bool = False` (in the registered MCP schema) and passes it to `refine_page`.
+- **Tests.** `tests/test_kbfix_refine_shrink_guard.py` (new, 15 tests): 99/200 refused with the exact error and page and history bytes unchanged; 100/200 accepted; 2/200 refused, then written with `allow_shrink=True` and recorded; writes above the floor (with and without `allow_shrink`) record no override keys; malformed frontmatter and whitespace-only bodies keep their own errors; an empty current body accepts any body; CRLF in either body counts as one character; ratio monkeypatched to 0.9 refuses 150/200; the MCP tool refuses and then writes with the override; `refine_page` signature and MCP schema list `allow_shrink`.
+- **BACKLOG.** The HIGH `kb_refine_page` shrink entry is deleted, and its open half, threading the `kb_review_page` truncation fact through to `refine_page`, is re-filed as its own HIGH bullet.
+- **T1-KBFIX-SHRINK-2.** Successor card after CI run 43695280342 found that the floor refuses `tests/test_workflow_e2e.py::test_e2e_ingest_refine_requery` (a 242-character entity page replaced by a 47-character marker on purpose); that one `refine_page` call now passes `allow_shrink=True`, no assertion changed.
+- **Tests:** 3835 → 3850 (+15); test files 218 → 219.
+
 ### 2026-11-15 — T1-KBFIX-FROMHEAD (headings are never linked; `### From` ref as inline code, #161)
 
 **Theme:** the linker turned `### From raw/articles/high-hydration.md` into `### From raw/articles/high-[[concepts/hydration|Hydration]].md`, breaking the source path, because ingest wrote the path bare and the injection mask covered only code, links and images.

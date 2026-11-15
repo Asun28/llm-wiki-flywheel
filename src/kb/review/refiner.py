@@ -29,6 +29,7 @@ import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import kb.config
 from kb.config import (
     MAX_NOTES_LEN,
     MAX_REVIEW_HISTORY_ENTRIES,
@@ -72,8 +73,16 @@ def refine_page(
     revision_notes: str = "",
     wiki_dir: Path | None = None,
     history_path: Path | None = None,
+    *,
+    allow_shrink: bool = False,
 ) -> dict:
     """Update a wiki page's content while preserving frontmatter.
+
+    A new body shorter than ``REFINE_MIN_BODY_RATIO`` times the current body
+    (both counted after CRLF to LF and ``strip()``) is refused unless
+    ``allow_shrink`` is true; a write that crosses the floor under the override
+    records ``allow_shrink``, ``previous_body_length`` and ``new_body_length`` in
+    its review-history row.
 
     Args:
         page_id: Wiki page ID (e.g., 'concepts/rag').
@@ -83,6 +92,7 @@ def refine_page(
             collapsing to a single line in wiki/log.md.
         wiki_dir: Path to wiki directory.
         history_path: Path to review history JSON.
+        allow_shrink: Accept a body under the ``REFINE_MIN_BODY_RATIO`` floor.
 
     Returns:
         Dict with page_id, updated, revision_notes. On error: dict with 'error' key.
@@ -233,6 +243,27 @@ def refine_page(
         if re.match(r"---\n\s*\w+\s*:.*?\n---", stripped_content, re.DOTALL):
             return {"error": "Content looks like a frontmatter block — pass only the body text."}
 
+        # T1-KBFIX-SHRINK (#162): refuse a body under REFINE_MIN_BODY_RATIO of the
+        # current one unless the caller opts in. Placed after every content gate so
+        # their errors win, and before the pending row so a refusal leaves the
+        # history untouched. The current body is the one read under the page lock.
+        # Ratio read through the module at call time (cycle-18 L1 / cycle-19 L2).
+        min_ratio = kb.config.REFINE_MIN_BODY_RATIO
+        previous_body_length = len(fm_match.group(2).strip())
+        new_body_length = len(updated_content.strip())
+        shrink_override = False
+        if previous_body_length > 0 and new_body_length < min_ratio * previous_body_length:
+            if not allow_shrink:
+                return {
+                    "error": (
+                        f"New body has {new_body_length} characters, under {min_ratio} of "
+                        f"the current body's {previous_body_length} (ratio "
+                        f"{new_body_length / previous_body_length:.3f} < {min_ratio}); "
+                        f"pass allow_shrink=True to replace it anyway."
+                    )
+                }
+            shrink_override = True
+
         # Reconstruct page — strip only leading newlines (preserve indented code blocks).
         # Adversarial-review MAJOR: use [\r\n]+ for defense-in-depth; upstream CRLF→LF
         # normalization at line ~100 handles most cases, but this guard catches any remnants.
@@ -262,16 +293,20 @@ def refine_page(
             timestamp = datetime.now().isoformat(timespec="seconds")
             # Phase 1 — write pending row BEFORE the page body.
             history = load_review_history(resolved_history_path)
-            history.append(
-                {
-                    "timestamp": timestamp,
-                    "page_id": page_id,
-                    "revision_notes": revision_notes,
-                    "content_length": len(updated_content),
-                    "status": "pending",
-                    "attempt_id": attempt_id,
-                }
-            )
+            pending_row = {
+                "timestamp": timestamp,
+                "page_id": page_id,
+                "revision_notes": revision_notes,
+                "content_length": len(updated_content),
+                "status": "pending",
+                "attempt_id": attempt_id,
+            }
+            if shrink_override:
+                # Only on writes that cross the floor; absence means no override.
+                pending_row["allow_shrink"] = True
+                pending_row["previous_body_length"] = previous_body_length
+                pending_row["new_body_length"] = new_body_length
+            history.append(pending_row)
             if len(history) > MAX_REVIEW_HISTORY_ENTRIES:
                 history = history[-MAX_REVIEW_HISTORY_ENTRIES:]
             save_review_history(history, resolved_history_path)
@@ -340,9 +375,11 @@ def refine_page(
     # rebuilds from post-refine disk state. mtime would catch most cases but
     # explicit invalidation is the documented contract.
     try:
-        import kb.graph.cache  # noqa: PLC0415
+        # `from ... import ... as` so the import does not bind `kb` as a local of
+        # refine_page, which would shadow the module-level `kb.config` read above.
+        from kb.graph import cache as graph_cache  # noqa: PLC0415
 
-        kb.graph.cache.invalidate(wiki_dir)
+        graph_cache.invalidate(wiki_dir)
     except Exception as _exc:  # noqa: BLE001
         logger.debug("Cycle 64 graph-cache invalidate skipped at refine tail: %s", _exc)
 

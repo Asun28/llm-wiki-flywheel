@@ -59,3 +59,63 @@ ruff check src/ tests/ && python -m pytest tests/test_kbfix_refine_shrink_guard.
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+
+Attempt 1. RED commit `c166359`, GREEN commit `612763d`. Tests: `tests/test_kbfix_refine_shrink_guard.py` (15 tests, tmp wiki and history paths, fixtures written as bytes, no model call or network).
+
+| Acceptance item | Proving test or command | Result |
+|---|---|---|
+| 1. 99/200 refused (error holds 200, 99, ratio; page and history bytes unchanged); 100/200 accepted | `test_a_body_just_under_half_is_refused_with_both_lengths_and_the_ratio` (exact error text `ratio 0.495 < 0.5`, pre-seeded history file byte-equal), `test_a_body_of_exactly_half_is_accepted` | pass |
+| 2. 2/200 refused; written with `allow_shrink=True`, row holds `allow_shrink: true`, `previous_body_length: 200`, `new_body_length: 2`; the 100-character write's row holds none | `test_a_one_percent_body_is_refused_without_the_override`, `test_the_override_writes_the_body_and_records_it_in_history`, `test_a_write_above_the_floor_records_no_override_keys` | pass |
+| 3. malformed frontmatter error wins; whitespace-only body gets the empty-body error; empty current body accepts any body; CRLF in either body does not change the counts | `test_malformed_frontmatter_is_reported_before_the_shrink_floor`, `test_a_whitespace_only_body_gets_the_empty_body_error`, `test_a_page_with_an_empty_body_accepts_any_non_empty_body`, `test_crlf_in_the_new_body_is_counted_as_one_character`, `test_crlf_in_the_current_body_is_counted_as_one_character` | pass |
+| 4. ratio monkeypatched to 0.9 refuses 150/200 | `test_the_ratio_is_read_at_call_time` (exact error text `ratio 0.750 < 0.9`) | pass |
+| 5. `kb_refine_page` (sync attribute) returns `Error:` for 1%, writes it with `allow_shrink=True`; `refine_page` `allow_shrink` keyword-only, default `False` | `test_the_mcp_tool_refuses_a_one_percent_body_and_writes_it_with_the_override`, `test_refine_page_takes_allow_shrink_as_keyword_only_defaulting_to_false`, `test_the_registered_mcp_tool_schema_lists_allow_shrink` (`mcp.get_tool("kb_refine_page").parameters`: boolean, default false, not required) | pass |
+| 6. existing DoD test files pass with no edit | DoD arm 2; `git diff main -- tests/` touches only the new file; 150 passed, 1 skipped | pass |
+| 7. BACKLOG entry deleted; `mcp-servers.md` names `allow_shrink`; one entry each in `CHANGELOG.md` `[Unreleased]` and `CHANGELOG-history.md`; State counts | `python scripts/verify_docs.py`: "docs in sync"; collected 3850 tests, 219 test files; State line reads `3850 tests across 219 test files`. BACKLOG HIGH section still holds other items, so it is not collapsed | pass (reviewer-verified) |
+
+RED against the unfixed code (`main` at `c06d035`): 9 failed, 6 passed. 7 failures are assertions (`AssertionError` on the written short body, the missing error string, the MCP `Refined:` reply; `KeyError: 'allow_shrink'` on the signature and MCP schema). 2 are `TypeError: refine_page() got an unexpected keyword argument 'allow_shrink'` in the two tests whose subject is the argument itself (override recorded; override on a non-crossing write). The ratio test sets the attribute with `raising=False`, so it fails on the assertion rather than on the missing constant. No import or collection error. The 6 passes guard behaviour the unfixed code already met: exactly-half accepted, no override keys above the floor, malformed frontmatter error, empty-body error, empty current body, CRLF in the current body. GREEN: DoD exit 0, `150 passed, 1 skipped`.
+
+| Input form / failure path | Covering test | Result |
+|---|---|---|
+| below floor (99/200, 2/200) refused | `test_a_body_just_under_half_is_refused_with_both_lengths_and_the_ratio`, `test_a_one_percent_body_is_refused_without_the_override` | pass |
+| at floor (100/200) accepted | `test_a_body_of_exactly_half_is_accepted` | pass |
+| above floor, with and without `allow_shrink`: no override keys | `test_a_write_above_the_floor_records_no_override_keys`, `test_allow_shrink_on_a_write_above_the_floor_records_no_override_keys` | pass |
+| empty current body: no floor | `test_a_page_with_an_empty_body_accepts_any_non_empty_body` | pass |
+| whitespace-only new body | `test_a_whitespace_only_body_gets_the_empty_body_error` | pass |
+| malformed frontmatter with a short body | `test_malformed_frontmatter_is_reported_before_the_shrink_floor` | pass |
+| CRLF in the new body / current body | `test_crlf_in_the_new_body_is_counted_as_one_character`, `test_crlf_in_the_current_body_is_counted_as_one_character` | pass |
+| override crossing the floor recorded | `test_the_override_writes_the_body_and_records_it_in_history` | pass |
+| monkeypatched ratio | `test_the_ratio_is_read_at_call_time` | pass |
+| MCP pass-through and schema | `test_the_mcp_tool_refuses_a_one_percent_body_and_writes_it_with_the_override`, `test_the_registered_mcp_tool_schema_lists_allow_shrink` | pass |
+
+Mutation checks (not committed; `src/kb/review/refiner.py` restored from a copy after each, `git diff --stat` showed only the candidate change):
+- (a) refusal returned after the pending row is saved: 2 failed (`test_a_body_just_under_half_is_refused_with_both_lengths_and_the_ratio`, `test_a_one_percent_body_is_refused_without_the_override`), 13 passed.
+- (b) override keys written on every `allow_shrink=True` call: 1 failed (`test_allow_shrink_on_a_write_above_the_floor_records_no_override_keys`), 14 passed.
+- (c) `<=` instead of `<`: 4 failed (`test_a_body_of_exactly_half_is_accepted`, `test_a_write_above_the_floor_records_no_override_keys`, `test_allow_shrink_on_a_write_above_the_floor_records_no_override_keys`, `test_crlf_in_the_current_body_is_counted_as_one_character`), 11 passed.
+
+Not done: the override is recorded in the review history only, not in the `wiki/log.md` refine line; adding it there would be an untested branch outside the acceptance list.
+
+Pre-review fixes (attempt 1, before review):
+- `BACKLOG.md`: the deleted entry's open half is re-filed as a new HIGH bullet, "`mcp/quality.py` `kb_review_page` truncation is not threaded to refine", which cites #162 / T1-KBFIX-SHRINK for the shrink guard and names the remaining fix. The deleted entry's title text is not in it, so acceptance 7 holds. One clause added to each changelog entry.
+- `src/kb/review/refiner.py`: `import kb.config` is now module-level (fresh `python -I` import of `kb.review.refiner` succeeds, no cycle) and the floor still reads `kb.config.REFINE_MIN_BODY_RATIO` at call time. The function-local `import kb.graph.cache` would also have bound `kb` as a local of `refine_page` and made that read raise `UnboundLocalError`, so it is now `from kb.graph import cache as graph_cache` (still function-local, inside the same best-effort `try`; not moved to module level, which would load networkx on every refiner import and move an import failure out of the `try`). No test pins refine's graph-cache invalidation; a throwaway probe spying on `kb.graph.cache.invalidate` showed `refine_page` still calls it once with `wiki_dir`.
+- DoD rerun: exit 0, `150 passed, 1 skipped`. Mutation (c) rerun: 4 failed, 11 passed, same four tests as above.
+
+Attempt 2 (repair of R3 decision 1, verdict `.review/T1-KBFIX-SHRINK.r3.1.dbf6349b.json`). No change to src behaviour or tests: `git diff f7908c7 95f639c -- src/ tests/` is empty.
+
+Finding F1 (class: missing-behavioral-red) at `tests/test_kbfix_refine_shrink_guard.py:112`: the attempt-1 RED (`c166359`) stopped at `TypeError: refine_page() got an unexpected keyword argument 'allow_shrink'` in 2 tests (`test_the_override_writes_the_body_and_records_it_in_history`, `test_allow_shrink_on_a_write_above_the_floor_records_no_override_keys`), so the override write and history assertions never ran. Repair: RED re-recorded against an importable stub.
+
+RED stub commit `89463ed` (new RED receipt): `refine_page` takes keyword-only `allow_shrink=False`, `kb_refine_page` takes `allow_shrink` and passes it through, `kb.config.REFINE_MIN_BODY_RATIO = 0.5` exists; there is no floor check and no override metadata (the pre-fix behaviour with the new parameter). Test file byte-equal to `f7908c7`. Result: 6 failed, 9 passed, every failure `AssertionError`, zero `TypeError`, no import or collection error:
+
+| Failing test | Line | Assertion that failed |
+|---|---|---|
+| `test_a_body_just_under_half_is_refused_with_both_lengths_and_the_ratio` | 70 | result is `{'updated': True, ...}`, not the refusal error (short body written) |
+| `test_a_one_percent_body_is_refused_without_the_override` | 101 | `'error' in result` is false (2-character body written) |
+| `test_the_override_writes_the_body_and_records_it_in_history` | 117 | history row has `allow_shrink`, `previous_body_length`, `new_body_length` all `None`; expected `True`, `200`, `2` |
+| `test_crlf_in_the_new_body_is_counted_as_one_character` | 188 | no `New body has 99 characters` error |
+| `test_the_ratio_is_read_at_call_time` | 215 | 150/200 with ratio 0.9 written, not refused |
+| `test_the_mcp_tool_refuses_a_one_percent_body_and_writes_it_with_the_override` | 234 | MCP reply starts `Refined:`, not `Error: New body has 2 characters` |
+
+Passing on the stub (they check behaviour the stub already has, or the parameter it already takes): `test_a_body_of_exactly_half_is_accepted`, `test_a_write_above_the_floor_records_no_override_keys`, `test_allow_shrink_on_a_write_above_the_floor_records_no_override_keys`, `test_malformed_frontmatter_is_reported_before_the_shrink_floor`, `test_a_whitespace_only_body_gets_the_empty_body_error`, `test_a_page_with_an_empty_body_accepts_any_non_empty_body`, `test_crlf_in_the_current_body_is_counted_as_one_character`, `test_refine_page_takes_allow_shrink_as_keyword_only_defaulting_to_false`, `test_the_registered_mcp_tool_schema_lists_allow_shrink`. The non-crossing override test fails under mutation (b) above, which writes the keys on every `allow_shrink=True` call.
+
+GREEN commit `95f639c`: `git checkout f7908c7 -- src/`; `git diff f7908c7 95f639c -- src/ tests/` empty. DoD: exit 0, `ruff` "All checks passed!", `150 passed, 1 skipped in 8.47s`.
