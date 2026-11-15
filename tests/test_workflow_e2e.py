@@ -129,6 +129,8 @@ def test_e2e_ingest_refine_requery(tmp_project: Path, monkeypatch) -> None:
         refined_body,
         revision_notes="test refinement",
         wiki_dir=tmp_project / "wiki",
+        # Replaces the whole page with a marker on purpose, so it passes the #162 override.
+        allow_shrink=True,
     )
     assert refine_result.get("error") is None, f"refine_page failed: {refine_result}"
 
