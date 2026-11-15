@@ -720,7 +720,11 @@ class VectorIndex:
         parseable dim logs one WARNING per instance naming the db path.
         """
         try:
-            row = conn.execute("SELECT sql FROM sqlite_master WHERE name = 'vec_pages'").fetchone()
+            # type = 'table' (a vec0 virtual table is listed as 'table'): a
+            # trigger or view named vec_pages must not supply the dim.
+            row = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'vec_pages'"
+            ).fetchone()
         except sqlite3.OperationalError:
             return 0
         if row is None:
