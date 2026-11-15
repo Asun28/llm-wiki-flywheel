@@ -1,7 +1,7 @@
 ---
 id: T0-DEPS-ADVISORIES
 title: "`requirements.txt` pins soupsieve 4.1.1, dnspython 2.9.2 and opentelemetry-api 1.45.2, closing the six open Dependabot alerts, and a test holds each pin at or above its advisory's first patched version"
-status: todo
+status: merged
 branch: T0-DEPS-ADVISORIES
 worktree: D:\wt\llm-wiki-flywheel\T0-DEPS-ADVISORIES
 allow_paths:
