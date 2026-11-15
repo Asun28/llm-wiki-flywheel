@@ -300,6 +300,62 @@ def test_labels_section_states_agreement_kappa_and_null_count_recomputed_from_la
     assert int(stated_null.group(1)) == sum(row["final"] is None for row in rows)
 
 
+# -- T0-KBEVAL-RULINGS acceptance 2 and 3 [R2] [R4] ------------------------------
+
+
+def table(body: str, first_header: str) -> tuple[list[str], dict[str, list[str]]]:
+    """Header cells and {first cell: other cells} of the table whose header starts so."""
+    lines = body.splitlines()
+    for i, line in enumerate(lines):
+        if not line.startswith("|"):
+            continue
+        header = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if header[0] != first_header:
+            continue
+        rows = {}
+        for row_line in lines[i + 2 :]:
+            if not row_line.startswith("|"):
+                break
+            cells = [cell.strip() for cell in row_line.strip().strip("|").split("|")]
+            rows[cells[0]] = cells[1:]
+        return header, rows
+    return [], {}
+
+
+def test_labels_section_states_owner_ruled_count_recomputed_from_labels():
+    rows = label_rows()
+    body = sections(report()).get("Labels", "")
+    stated = re.search(r"Rows with an owner ruling: (\d+)\b", body)
+    assert stated, "Labels section lacks the owner-ruling figure"
+    assert int(stated.group(1)) == sum(row["ownerRuled"] is True for row in rows)
+
+
+def test_label_count_table_equals_counts_recomputed_from_labels():
+    rows = label_rows()
+    header, cells = table(sections(report()).get("Labels", ""), "Label")
+    assert header == ["Label", "labelA", "labelB", "final"]
+    assert set(cells) == LABEL_SET | {"null"}
+    counts = {key: Counter(row[key] for row in rows) for key in ("labelA", "labelB", "final")}
+    for label in sorted(LABEL_SET):
+        expected = [str(counts[key][label]) for key in ("labelA", "labelB", "final")]
+        assert cells[label] == expected, label
+    assert cells["null"] == ["", "", str(counts["final"][None])]
+
+
+def test_final_by_band_table_equals_counts_recomputed_from_labels():
+    rows = label_rows()
+    header, cells = table(sections(report()).get("Labels", ""), "Band")
+    assert header[0] == "Band" and set(header[1:]) <= LABEL_SET | {"null"}
+    assert set(cells) == {row["band"] for row in rows}
+    by_band = Counter((row["band"], row["final"]) for row in rows)
+    for band, values in cells.items():
+        for column, value in zip(header[1:], values, strict=True):
+            final = None if column == "null" else column
+            assert value == str(by_band[(band, final)]), (band, column)
+        # A band row sums to every row of that band, so no column was left out.
+        assert sum(int(v) for v in values) == sum(row["band"] == band for row in rows), band
+
+
 # -- forbid: no number in the report from outside summary.json or labels.jsonl ----
 
 # A number token: digits not preceded by a letter, digit, `#`, `.` or `-` and not
@@ -339,7 +395,12 @@ def summary_numbers(node) -> set[str]:
 
 def label_numbers(rows: list[dict]) -> set[str]:
     """Every count the report may take from labels.jsonl."""
-    counts = [len(rows), sum(row["final"] is None for row in rows), 0]
+    counts = [
+        len(rows),
+        sum(row["final"] is None for row in rows),
+        sum(row["ownerRuled"] is True for row in rows),
+        0,
+    ]
     for key in ("labelA", "labelB", "final"):
         counts += Counter(row[key] for row in rows).values()
     counts += Counter((row["band"], row["final"]) for row in rows).values()
