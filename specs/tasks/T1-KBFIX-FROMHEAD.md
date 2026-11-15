@@ -54,3 +54,33 @@ ruff check src/ tests/ && python -m pytest tests/test_kbfix_linker_headings.py t
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+
+Attempt 1. RED commit `9ba84d3`, GREEN commit `bcae87b`. Tests: `tests/test_kbfix_linker_headings.py` (16 tests; ingest with a supplied extraction and `_skip_vector_rebuild=True`, no model call or network).
+
+| Acceptance item | Proving test or command | Result |
+|---|---|---|
+| 1. re-ingest from `raw/articles/second.md` writes ``### From `raw/articles/second.md` ``; refs with one and two backticks render as one code span (markdown-it-py: one `code_inline`, content = ref) | `test_reingest_writes_from_heading_with_inline_code_ref`, `test_from_heading_ref_is_one_code_span[no-backtick,one-backtick,two-backticks]` | pass |
+| 2. `### From raw/articles/high-hydration.md` byte-identical, `Hydration matters.` linked, through both injectors | `test_from_heading_kept_while_body_is_linked[single,batch]` | pass |
+| 3. heading levels 1-6, indent 0-3, closing `#`s byte-identical | `test_all_atx_heading_forms_stay_byte_identical[single,batch]` (fixtures checked as headings by `test_heading_fixtures_are_commonmark_headings`) | pass |
+| 4. page matching only in headings: bytes and mtime unchanged (peek ignores headings) | `test_page_matching_only_in_headings_is_not_written[single,batch]` | pass |
+| 5. `_mask_code_blocks` sample equals a literal (no heading masked); existing ingest Context/References tests pass; only edit to an existing test is `test_backlog_by_file_cycle7.py:265` | `test_mask_code_blocks_does_not_mask_headings`; DoD arm 2 (`git diff main -- tests/` touches the new file and that one line) | pass |
+| 6. architecture bullet, one CHANGELOG / CHANGELOG-history entry each, CLAUDE.md State counts | `python scripts/verify_docs.py`: "docs in sync"; collected 3815, test files 218; State line reads `3815 tests across 218 test files` | pass (reviewer-verified) |
+
+RED against the unfixed code (`main` at `28e3b4e`): 12 failed, 4 passed. All 12 failures are `AssertionError` (heading text bare instead of inline code; heading bytes rewritten to `high-[[concepts/hydration|Hydration]].md`; `['entities/bread'] == []` for the heading-only page). No import or collection error. The 4 passes guard behaviour the unfixed code already met: the CommonMark fixture check, both `#tag` controls, and the `_mask_code_blocks` literal (R3 regression guard). GREEN: DoD exit 0, `307 passed`.
+
+| Input form | Covering test | Result |
+|---|---|---|
+| heading levels 1-6 | `test_all_atx_heading_forms_stay_byte_identical` | pass |
+| indent 0-3 spaces | `test_all_atx_heading_forms_stay_byte_identical` | pass |
+| closing `#`s; tab after `#` | `test_all_atx_heading_forms_stay_byte_identical` | pass |
+| heading holding inline code (code placeholder inside heading restored) | `test_heading_holding_inline_code_is_restored_fully[single,batch]` | pass |
+| `#tag` without space is not a heading, still linked | `test_hash_without_space_is_not_a_heading[single,batch]` | pass |
+| ref with 0 / 1 / 2 backticks | `test_from_heading_ref_is_one_code_span[no-backtick,one-backtick,two-backticks]` | pass |
+
+Recogniser differential (not committed): `_ATX_HEADING_RE.fullmatch` vs markdown-it-py `heading_open` on 616 generated lines (indent 0-4 spaces and tabs, 0-8 `#`, ten tails incl. empty, tab, closing `#`, escaped `#`, NBSP): 0 disagreements. `_inline_code` vs markdown-it-py on 8 refs (leading/trailing backtick, runs of 1-3, backtick-only refs): 0 disagreements.
+
+Mutation (not committed): heading mask moved inside `_mask_code_blocks`. Result over the new file, `test_ingest.py`, `test_backlog_by_file_cycle7.py`, `test_lint.py`: 10 failed, 280 passed, incl. `test_mask_code_blocks_does_not_mask_headings` (acceptance-5 literal), 3 ingest Context/References tests, 2 cycle-7 tests. `src/kb/compile/linker.py` restored to the GREEN version afterwards.
+
+Extra check: lint test files that mention dead links (`test_lint.py`, `test_lint_checks_split.py`, `test_lint_fix_v093.py`, `test_lint_runner.py`): 95 passed, 1 skipped.
