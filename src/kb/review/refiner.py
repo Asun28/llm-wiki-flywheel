@@ -29,6 +29,7 @@ import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import kb.config
 from kb.config import (
     MAX_NOTES_LEN,
     MAX_REVIEW_HISTORY_ENTRIES,
@@ -247,8 +248,6 @@ def refine_page(
         # their errors win, and before the pending row so a refusal leaves the
         # history untouched. The current body is the one read under the page lock.
         # Ratio read through the module at call time (cycle-18 L1 / cycle-19 L2).
-        import kb.config  # noqa: PLC0415
-
         min_ratio = kb.config.REFINE_MIN_BODY_RATIO
         previous_body_length = len(fm_match.group(2).strip())
         new_body_length = len(updated_content.strip())
@@ -376,9 +375,11 @@ def refine_page(
     # rebuilds from post-refine disk state. mtime would catch most cases but
     # explicit invalidation is the documented contract.
     try:
-        import kb.graph.cache  # noqa: PLC0415
+        # `from ... import ... as` so the import does not bind `kb` as a local of
+        # refine_page, which would shadow the module-level `kb.config` read above.
+        from kb.graph import cache as graph_cache  # noqa: PLC0415
 
-        kb.graph.cache.invalidate(wiki_dir)
+        graph_cache.invalidate(wiki_dir)
     except Exception as _exc:  # noqa: BLE001
         logger.debug("Cycle 64 graph-cache invalidate skipped at refine tail: %s", _exc)
 
