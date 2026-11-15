@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -477,3 +478,46 @@ def test_cr_in_evidence_action_on_lf_page_writes_the_bytes_of_before(tmp_path):
         f"{SENTINEL}\n- 2026-01-02 | {_NEW_SOURCE} | Mentioned\r\nin new source\n".encode(),
     )
     assert page.read_bytes() == expected
+
+
+# --- R5 + forbid: no pattern of the body writer sees a CR (R3 finding F1) ----
+
+
+class _RecordingRe:
+    """Stands in for `kb.ingest.pipeline.re`: records every string a pattern call gets."""
+
+    _CALLS = ("sub", "subn", "search", "match", "fullmatch", "findall", "finditer", "split")
+
+    def __init__(self, seen: list[str]):
+        self._seen = seen
+
+    def __getattr__(self, attr):
+        real = getattr(re, attr)
+        if attr not in self._CALLS:
+            return real
+
+        def recording(*args, **kwargs):
+            self._seen.extend(a for a in (*args, *kwargs.values()) if isinstance(a, str))
+            return real(*args, **kwargs)
+
+        return recording
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [_CR_PAGE, [line for line in _CR_PAGE if line not in ("## Context", "Bread is baked.")]],
+    ids=["context-section", "no-context-section"],
+)
+def test_body_writer_patterns_never_see_a_cr(tmp_path, monkeypatch, lines):
+    seen: list[str] = []
+    monkeypatch.setattr("kb.ingest.pipeline.re", _RecordingRe(seen))
+    page = _write(tmp_path / "crlf" / "bread.md", _page(_CRLF, lines))
+
+    _update_existing_page_body(
+        page_path=page,
+        source_ref=_NEW_SOURCE,
+        ctx="## Context\r\n\r\nBread rises.\r\nBake it.\rCool it.",
+    )
+
+    assert any("Mentioned in raw/articles/b.md" in s for s in seen)
+    assert [s for s in seen if "\r" in s] == []
