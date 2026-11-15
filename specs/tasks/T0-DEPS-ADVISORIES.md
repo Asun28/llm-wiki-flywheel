@@ -54,3 +54,11 @@ ruff check tests/test_dep_advisory_floors.py && python -m pytest tests/test_dep_
 ```
 - Expected exit code: 0
 - Assertion: the floor tests pass and the full pin set resolves with no conflict.
+
+## Attempt evidence
+| Item | Proof | Result |
+|---|---|---|
+| 1 | `pytest tests/test_dep_advisory_floors.py`: RED at 8948f12 (old pins) 3 failed on the floor assertion, 2 checker tests passed; on the candidate 5 passed | pass |
+| 2 | `git diff origin/main...HEAD -- requirements.txt`: exactly `soupsieve` 2.9 → 4.1.1, `dnspython` 2.9.0 → 2.9.2, `opentelemetry-api` 1.45.1 → 1.45.2 | pass |
+| 3 | DoD arm 3, `pip install --dry-run --ignore-installed --quiet -r requirements.txt`: exit 0; `.venv` on the new pins: `pip check` clean, `pip-audit` no known vulnerabilities | pass |
+| 4 | CHANGELOG.md, CHANGELOG-history.md, SECURITY.md entries; CLAUDE.md 3855 tests / 220 files; `python scripts/verify_docs.py`: docs in sync | pass |
