@@ -17,6 +17,16 @@ Purpose: Full per-cycle bullet-level detail archive. CHANGELOG.md is the compact
 
 > Detailed per-cycle entries live here. High-level summaries remain in [CHANGELOG.md](CHANGELOG.md); full bullet-level detail belongs here.
 
+### 2026-11-15 — T0-KBFIX-MASKREDOS (linear-time scan of an unclosed link opener, #167)
+
+**Theme:** `_CODE_MASK_RE`'s link and image alternatives ended in `\((?:[^()]*|\([^()]*\))*\)`. The repeated group's first branch was itself `[^()]*`, so after a `](` that is never closed, a run of n non-parenthesis characters could be split between the inner and outer repetition in 2^n ways (0.0007 s at 14 trailing characters, 0.21 s at 22). Every caller of `_mask_code_blocks` and `_mask_for_injection` ran it on the whole page body: ingest Context/References editing, both wikilink injectors and `fix_dead_links`. This was the open item recorded under T1-KBFIX-FROMHEAD.
+
+- **`src/kb/compile/linker.py`.** The repeated group is now `(?:[^()]|\([^()]*\))*`: one character or one parenthesised group per repetition, so each character has one way to match and the scan of an unclosed opener is linear (0.012 s for 50,000 trailing characters). The matched spans cannot change: after `(`, a valid end is a `)` whose preceding text has its parentheses paired at depth one, and a second such `)` would have no `(` to pair with, so each start position has at most one match under either form.
+- **Tests.** `tests/test_kbfix_code_mask_redos.py` (new, 6 tests). Four run in a subprocess with a 30 s timeout, because a regex scan holds the GIL and the old pattern never finishes: `_mask_code_blocks` on `see [x](` and on `see ![x](` followed by 5,000 characters returns no masked span in under 1 s; `inject_wikilinks` links the body of a page holding the unclosed opener; `fix_dead_links` fixes a dead link on such a page. Each subprocess reports the `linker.py` it imported, and the test checks it is this checkout's. Two compare `finditer` spans with the pre-fix pattern on all 248,832 length-5 products of a 12-token alphabet and on the inputs of the existing mask tests (incl. the 512 generated FROMHEAD cases): no disagreement; a mutant that lets `(` into the character branch fails both. RED at 2ade332: the four subprocess tests failed on the timeout.
+- **`tests/test_kbfix_linker_headings.py`.** The comment that called the pattern exponential is shortened; the test is unchanged.
+- **Not changed:** many unclosed `[` openers still scan in quadratic time through `\[(?:[^\]]*)\]` (0.42 s for 20,000 `[`).
+- **Tests:** 3855 → 3861 (+6); test files 220 → 221.
+
 ### 2026-11-15 — T0-DEPS-ADVISORIES (Dependabot #238-#243)
 
 **Theme:** close the six open Dependabot alerts on the repository's Security page (3 high, 3 medium), all reported against `requirements.txt`. Code scanning has no analysis configured and secret scanning has no open alert. Alert #105 (`nltk`, GHSA-qx2g-xrx7-vfh8, fixed in 3.10.1) was already fixed by the `nltk==3.10.4` pin of the 2026-11-05 sweep; the API reports it `fixed`.
