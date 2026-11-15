@@ -717,6 +717,19 @@ def _build_item_content(name: str, source_ref: str, context: str, verb: str) -> 
     return "\n".join(lines)
 
 
+def _inline_code(text: str) -> str:
+    """Render ``text`` as one CommonMark inline code span (#161).
+
+    No backtick in ``text``: single backticks. Otherwise a backtick run one
+    longer than the longest run in ``text``, with one space inside each side.
+    """
+    runs = re.findall(r"`+", text)
+    if not runs:
+        return f"`{text}`"
+    fence = "`" * (max(len(r) for r in runs) + 1)
+    return f"{fence} {text} {fence}"
+
+
 def _extract_entity_context(name: str, extraction: dict) -> str:
     """Build context snippet for an entity from extraction data.
 
@@ -955,7 +968,7 @@ def _update_existing_page_body(
                     # Nothing left after stripping the header — skip.
                     pass
                 else:
-                    subsection = f"\n### From {source_ref}\n\n{ctx_body}\n"
+                    subsection = f"\n### From {_inline_code(source_ref)}\n\n{ctx_body}\n"
                     # Find END of Context section (next ## header OR end-of-string).
                     match = re.search(
                         r"(^## Context\n(?:.*\n)*?)(?=^## |\Z)",

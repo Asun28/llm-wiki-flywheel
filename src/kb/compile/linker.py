@@ -75,6 +75,29 @@ def _unmask_code_blocks(text: str, masked: list[str], prefix: str) -> str:
     return text
 
 
+# ATX heading line: 0-3 spaces, 1-6 `#`, then a space, a tab or end of line.
+# Applied to code-masked text, so headings inside fenced code are already masked.
+_ATX_HEADING_RE = re.compile(r"(?m)^ {0,3}#{1,6}(?:[ \t][^\n]*)?$")
+
+
+def _mask_for_injection(text: str) -> tuple[str, list[str], str]:
+    """Mask code, links and images, then every ATX heading line (#161).
+
+    Wikilink injection only. `_mask_code_blocks` stays unchanged for its other
+    callers (ingest Context/References editing, dead-links lint). Heading
+    placeholders come after the code placeholders and `_unmask_code_blocks`
+    restores in one pass in index order, so each heading is stored fully
+    unmasked or a code placeholder inside it would survive.
+    """
+    masked_text, masked, prefix = _mask_code_blocks(text)
+
+    def _replace(m: re.Match) -> str:
+        masked.append(_unmask_code_blocks(m.group(0), masked, prefix))
+        return f"\x00{prefix}{len(masked) - 1}\x00"
+
+    return _ATX_HEADING_RE.sub(_replace, masked_text), masked, prefix
+
+
 def resolve_wikilinks(wiki_dir: Path | None = None) -> dict:
     """Resolve all wikilinks across the wiki and report broken links.
 
@@ -228,7 +251,7 @@ def inject_wikilinks(
         peek_body = peek_fm_match.group(2) if peek_fm_match else peek_content
         if target_page_id in extract_wikilinks(peek_body):
             continue  # already linked — no lock
-        peek_masked_body, _peek_mc, _peek_mp = _mask_code_blocks(peek_body)
+        peek_masked_body, _peek_mc, _peek_mp = _mask_for_injection(peek_body)
         if not pattern.search(peek_masked_body):
             continue  # title does not appear in body — no lock
 
@@ -265,7 +288,7 @@ def inject_wikilinks(
                 # so wikilink injection cannot touch content inside ``` ``` or
                 # `...` spans.
                 original_body = body
-                body, masked_code, mask_prefix = _mask_code_blocks(body)
+                body, masked_code, mask_prefix = _mask_for_injection(body)
 
                 # Check if title appears in body (outside code blocks) on fresh
                 # content — race may have removed the match.
@@ -477,7 +500,7 @@ def _process_inject_chunk(
         existing_links = set(extract_wikilinks(peek_body))
 
         # Collect candidate titles whose target is not already linked AND title appears in body.
-        peek_masked_body, _peek_mc, _peek_mp = _mask_code_blocks(peek_body)
+        peek_masked_body, _peek_mc, _peek_mp = _mask_for_injection(peek_body)
         candidates: list[tuple[str, str]] = []
         for title, target_pid in sorted_chunk:
             if pid == target_pid:
@@ -509,7 +532,7 @@ def _process_inject_chunk(
 
                 fresh_links = set(extract_wikilinks(body))
                 original_body = body
-                body_masked, masked_code, mask_prefix = _mask_code_blocks(body)
+                body_masked, masked_code, mask_prefix = _mask_for_injection(body)
 
                 # Cycle 19 AC1b (PR #33 R1 Codex MAJOR fix) — re-derive winner
                 # from FRESH body using ALL batch titles (sorted_chunk), not the
