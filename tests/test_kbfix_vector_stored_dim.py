@@ -11,10 +11,13 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
+import time
 from pathlib import Path
 
 import sqlite_vec
 
+import kb.query.embeddings
 from kb.query.embeddings import VectorIndex
 
 _LOGGER = "kb.query.embeddings"
@@ -97,3 +100,86 @@ def test_table_without_dim_warns_once_per_instance_naming_db(tmp_path, caplog):
     warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
     assert len(warnings) == 1
     assert str(db_path) in warnings[0].getMessage()
+
+
+_THREADS = 4
+
+
+def _slow_recording_warning(calls: list[str]):
+    """Replace `logger.warning`: record the message, then hold the caller ~0.2s
+    so every thread released together reaches the warn-once check before the
+    first caller can set the flag."""
+
+    def warning(msg, *args, **kwargs):
+        calls.append(msg % args if args else msg)
+        time.sleep(0.2)
+
+    return warning
+
+
+def _run_together(target) -> None:
+    """Start _THREADS threads that wait on one Event, release them at once,
+    and join them with a timeout (an Event, not a reusable Barrier: FW-3)."""
+    go = threading.Event()
+    errors: list[BaseException] = []
+
+    def worker():
+        go.wait(5)
+        try:
+            target()
+        except BaseException as exc:  # noqa: BLE001 - surfaced by the assert below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker, daemon=True) for _ in range(_THREADS)]
+    for thread in threads:
+        thread.start()
+    go.set()
+    for thread in threads:
+        thread.join(10)
+    assert not any(thread.is_alive() for thread in threads)
+    assert errors == []
+
+
+def test_schema_warning_logged_once_under_concurrent_first_reads(tmp_path, monkeypatch):
+    """R3, repair F1: concurrent reads on one instance log the schema WARNING once."""
+    db_path = _db_path(tmp_path)
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute("CREATE TABLE vec_pages (embedding BLOB)")
+        conn.commit()
+    finally:
+        conn.close()
+    calls: list[str] = []
+    monkeypatch.setattr(kb.query.embeddings.logger, "warning", _slow_recording_warning(calls))
+    idx = VectorIndex(db_path)
+    results: list[int] = []
+
+    def read_dim():
+        thread_conn = sqlite3.connect(str(db_path))
+        try:
+            results.append(idx._read_stored_dim(thread_conn))
+        finally:
+            thread_conn.close()
+
+    _run_together(read_dim)
+
+    assert results == [0] * _THREADS
+    assert len(calls) == 1
+
+
+def test_dim_mismatch_warning_logged_once_under_concurrent_queries(tmp_path, monkeypatch):
+    """Same-class site of F1: concurrent mismatched queries log the dim WARNING once."""
+    monkeypatch.setenv("KB_DISABLE_VECTOR_AUTO_REBUILD", "1")
+    db_path = _db_path(tmp_path)
+    VectorIndex(db_path).build(
+        [("concepts/alpha", [1.0, 0.0, 0.0, 0.0]), ("concepts/beta", [0.0, 1.0, 0.0, 0.0])]
+    )
+    calls: list[str] = []
+    monkeypatch.setattr(kb.query.embeddings.logger, "warning", _slow_recording_warning(calls))
+    idx = VectorIndex(db_path)
+    results: list[list] = []
+
+    _run_together(lambda: results.append(idx.query([1.0, 0.0, 0.0])))
+
+    assert results == [[]] * _THREADS
+    assert len(calls) == 1
