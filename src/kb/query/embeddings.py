@@ -473,10 +473,13 @@ class VectorIndex:
     def __init__(self, db_path: Path):
         self.db_path = db_path
         # H7: cache stored dim on first query so we avoid running
-        # `PRAGMA table_info` on the hot path. `None` means "not yet probed".
+        # the schema read on the hot path. `None` means "not yet probed".
         # `0` means "empty DB / missing table" (query returns []).
         self._stored_dim: int | None = None
         self._dim_warned: bool = False
+        # T1-KBFIX-VECDIM R3: once-per-instance gate for the "vec_pages has no
+        # float[N] declaration" WARNING in `_read_stored_dim`.
+        self._schema_warned: bool = False
         # Cycle 6 AC5 — persistent sqlite3 connection. Loaded once via
         # `_ensure_conn()` and reused across every `query()` call. On
         # extension-load failure `_disabled = True`; a single WARNING is
@@ -703,20 +706,29 @@ class VectorIndex:
         """Return the embedding dim declared by the `vec_pages` table, or 0
         when the table does not exist / has no dim metadata.
 
-        sqlite-vec declares the virtual table as `vec0(embedding float[N])`;
-        the declared schema surfaces via `PRAGMA table_info` as a column with
-        type `float[N]`. We parse N out of the type string.
+        T1-KBFIX-VECDIM (#154): N is parsed from the table's declaration in
+        `sqlite_master.sql` (`... vec0(embedding float[N])`, written by
+        `build`). `PRAGMA table_info` is not used: with sqlite-vec 0.1.9 its
+        `type` column is empty for a `vec0` table, which read as dim 0 and
+        made every vector query return [] silently. A table present without a
+        parseable dim logs one WARNING per instance naming the db path.
         """
         try:
-            rows = conn.execute("PRAGMA table_info(vec_pages)").fetchall()
+            row = conn.execute("SELECT sql FROM sqlite_master WHERE name = 'vec_pages'").fetchone()
         except sqlite3.OperationalError:
             return 0
-        for row in rows:
-            # row layout: (cid, name, type, notnull, dflt_value, pk)
-            col_type = row[2] or ""
-            match = re.search(r"float\[(\d+)\]", col_type, re.IGNORECASE)
-            if match:
-                return int(match.group(1))
+        if row is None:
+            return 0
+        match = re.search(r"float\[(\d+)\]", row[0] or "", re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+        if not self._schema_warned:
+            logger.warning(
+                "Vector index table vec_pages at %s declares no float[N] dimension; "
+                "vector search is disabled for this index.",
+                self.db_path,
+            )
+            self._schema_warned = True
         return 0
 
     def query(self, query_vec: list[float], limit: int = 10) -> list[tuple[str, float]]:
