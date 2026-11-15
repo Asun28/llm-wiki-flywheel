@@ -99,3 +99,22 @@ Pre-review fixes (attempt 1, before review):
 - `BACKLOG.md`: the deleted entry's open half is re-filed as a new HIGH bullet, "`mcp/quality.py` `kb_review_page` truncation is not threaded to refine", which cites #162 / T1-KBFIX-SHRINK for the shrink guard and names the remaining fix. The deleted entry's title text is not in it, so acceptance 7 holds. One clause added to each changelog entry.
 - `src/kb/review/refiner.py`: `import kb.config` is now module-level (fresh `python -I` import of `kb.review.refiner` succeeds, no cycle) and the floor still reads `kb.config.REFINE_MIN_BODY_RATIO` at call time. The function-local `import kb.graph.cache` would also have bound `kb` as a local of `refine_page` and made that read raise `UnboundLocalError`, so it is now `from kb.graph import cache as graph_cache` (still function-local, inside the same best-effort `try`; not moved to module level, which would load networkx on every refiner import and move an import failure out of the `try`). No test pins refine's graph-cache invalidation; a throwaway probe spying on `kb.graph.cache.invalidate` showed `refine_page` still calls it once with `wiki_dir`.
 - DoD rerun: exit 0, `150 passed, 1 skipped`. Mutation (c) rerun: 4 failed, 11 passed, same four tests as above.
+
+Attempt 2 (repair of R3 decision 1, verdict `.review/T1-KBFIX-SHRINK.r3.1.dbf6349b.json`). No change to src behaviour or tests: `git diff f7908c7 95f639c -- src/ tests/` is empty.
+
+Finding F1 (class: missing-behavioral-red) at `tests/test_kbfix_refine_shrink_guard.py:112`: the attempt-1 RED (`c166359`) stopped at `TypeError: refine_page() got an unexpected keyword argument 'allow_shrink'` in 2 tests (`test_the_override_writes_the_body_and_records_it_in_history`, `test_allow_shrink_on_a_write_above_the_floor_records_no_override_keys`), so the override write and history assertions never ran. Repair: RED re-recorded against an importable stub.
+
+RED stub commit `89463ed` (new RED receipt): `refine_page` takes keyword-only `allow_shrink=False`, `kb_refine_page` takes `allow_shrink` and passes it through, `kb.config.REFINE_MIN_BODY_RATIO = 0.5` exists; there is no floor check and no override metadata (the pre-fix behaviour with the new parameter). Test file byte-equal to `f7908c7`. Result: 6 failed, 9 passed, every failure `AssertionError`, zero `TypeError`, no import or collection error:
+
+| Failing test | Line | Assertion that failed |
+|---|---|---|
+| `test_a_body_just_under_half_is_refused_with_both_lengths_and_the_ratio` | 70 | result is `{'updated': True, ...}`, not the refusal error (short body written) |
+| `test_a_one_percent_body_is_refused_without_the_override` | 101 | `'error' in result` is false (2-character body written) |
+| `test_the_override_writes_the_body_and_records_it_in_history` | 117 | history row has `allow_shrink`, `previous_body_length`, `new_body_length` all `None`; expected `True`, `200`, `2` |
+| `test_crlf_in_the_new_body_is_counted_as_one_character` | 188 | no `New body has 99 characters` error |
+| `test_the_ratio_is_read_at_call_time` | 215 | 150/200 with ratio 0.9 written, not refused |
+| `test_the_mcp_tool_refuses_a_one_percent_body_and_writes_it_with_the_override` | 234 | MCP reply starts `Refined:`, not `Error: New body has 2 characters` |
+
+Passing on the stub (they check behaviour the stub already has, or the parameter it already takes): `test_a_body_of_exactly_half_is_accepted`, `test_a_write_above_the_floor_records_no_override_keys`, `test_allow_shrink_on_a_write_above_the_floor_records_no_override_keys`, `test_malformed_frontmatter_is_reported_before_the_shrink_floor`, `test_a_whitespace_only_body_gets_the_empty_body_error`, `test_a_page_with_an_empty_body_accepts_any_non_empty_body`, `test_crlf_in_the_current_body_is_counted_as_one_character`, `test_refine_page_takes_allow_shrink_as_keyword_only_defaulting_to_false`, `test_the_registered_mcp_tool_schema_lists_allow_shrink`. The non-crossing override test fails under mutation (b) above, which writes the keys on every `allow_shrink=True` call.
+
+GREEN commit `95f639c`: `git checkout f7908c7 -- src/`; `git diff f7908c7 95f639c -- src/ tests/` empty. DoD: exit 0, `ruff` "All checks passed!", `150 passed, 1 skipped in 8.47s`.
