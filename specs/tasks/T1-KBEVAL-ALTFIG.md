@@ -1,7 +1,7 @@
 ---
 id: T1-KBEVAL-ALTFIG
 title: "The baseline report test reads a figure in image alt text by its rendered text, so a formatted second figure is counted (#163)"
-status: todo
+status: merged
 branch: T1-KBEVAL-ALTFIG
 worktree: D:\wt\llm-wiki-flywheel\T1-KBEVAL-ALTFIG
 plan_ref: plans/kb-fixes-2.md#order-of-work
