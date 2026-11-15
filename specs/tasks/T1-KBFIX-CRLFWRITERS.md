@@ -57,3 +57,25 @@ ruff check src/ tests/ && python -m pytest tests/test_kbfix_crlf_writers.py test
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+
+### Attempt 1 (2026-11-16): BLOCKED, card text and an existing test disagree on Windows
+
+- Base: origin/main `733b476`. Commits: `adc752a` (RED test), `f157ebb` (GREEN: three writers + the `counting_read` spy).
+- RED (`adc752a`, src unchanged): `python -m pytest tests/test_kbfix_crlf_writers.py -q -p no:cacheprovider --tb=line` exit 1, `11 failed, 4 passed`. The 11 fail on `assert _all_crlf(written)` (lines 99, 125, 148, 187) or on the exact-bytes assert (lines 226, 341) with bare LF in the written bytes; the 4 that pass are the three LF-page byte tests (R4) and the code-only dead-link page that is not written.
+- DoD (`f157ebb`, Windows, main checkout `.venv`): exit 1, `1 failed, 645 passed, 4 skipped, 3 warnings`. Failure: `tests/test_lint.py::test_atomic_text_write_patch_reaches_dead_link_fix_submodule`.
+- Cause: the test writes its page with `Path.write_text`, which on Windows writes CRLF (`b'x\r\ny\r\n'`), and expects `fix_dead_links` to pass `atomic_text_write` the LF text (`page.read_text(...).replace(...)`). R3 requires that same call to pass the CRLF-restored text, so on Windows the test asserts the #175 defect; on Linux the page is LF and the test passes. The card sweep lists only the `Path.read_text` spies and missed this test. No code change satisfies both R3 and this assertion on Windows; per the card (acceptance 6) and the dispatch, the test was not edited.
+- Full suite (`f157ebb`, that one test deselected): exit 0, `3876 passed, 29 skipped, 1 deselected, 17 xfailed` (3923 collected = 3908 + 15 new).
+- `git diff --numstat origin/main...HEAD` before this evidence commit: `6 2 src/kb/ingest/evidence.py`, `7 7 src/kb/ingest/pipeline.py`, `5 3 src/kb/lint/checks/dead_links.py`, `2 2 tests/test_ingest.py`, `351 0 tests/test_kbfix_crlf_writers.py`.
+- Not done (waits on a ruling): acceptance 7 docs (`architecture.md`, CHANGELOG entries, `CLAUDE.md` State counts).
+
+| Acceptance | Test or command | Status |
+|---|---|---|
+| 1 | `test_reingest_with_context_keeps_crlf_and_matches_lf_copy` | pass |
+| 2 | `test_fresh_references_block_keeps_crlf[no-references, references-header-not-matched]`, `test_context_inserted_before_references_keeps_crlf` | pass |
+| 3 | `test_evidence_append_keeps_crlf_in_each_branch[3 branches]` | pass |
+| 4 | `test_dead_links_fix_keeps_crlf_and_leaves_clean_page_unwritten`, `test_dead_link_only_inside_code_leaves_crlf_page_unwritten` | pass |
+| 5 | `test_mixed_page_keeps_the_lf_of_an_unchanged_line[3 writers]`, `test_lf_page_is_written_with_the_same_bytes_as_before[3 writers]` | pass |
+| 6 | DoD | FAIL: `test_lint.py::test_atomic_text_write_patch_reaches_dead_link_fix_submodule` (Windows only) |
+| 7 | docs | not started |
