@@ -718,6 +718,11 @@ def _build_item_content(name: str, source_ref: str, context: str, verb: str) -> 
     return "\n".join(lines)
 
 
+def _to_lf(text: str) -> str:
+    """Return ``text`` with every CRLF and lone CR turned into LF (#175 R5)."""
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def _inline_code(text: str) -> str:
     """Render ``text`` as one CommonMark inline code span (#161).
 
@@ -907,7 +912,9 @@ def _update_existing_page_body(
         content = fm_text + body_text
 
         # 2. Append to References section (Fix 2.10: append after last ref, Fix 2.11: scope to body)
-        ref_line = f"- {verb} in {source_ref}"
+        # #175 R5: inserted text is LF before any pattern sees it (`source_ref` can
+        # hold a CR on POSIX; `safe_ref` above is escaped by `yaml_escape`).
+        ref_line = _to_lf(f"- {verb} in {source_ref}")
         # Cycle 7 AC5: mask fenced code blocks / inline code / markdown links
         # before running the `## References` regex so literal `## References`
         # text inside a code example cannot misdirect the insertion point. The
@@ -957,6 +964,8 @@ def _update_existing_page_body(
         if ctx is None and name and extraction:
             ctx = _extract_entity_context(name, extraction)
         if ctx:
+            # #175 R5: an extraction field keeps CR through `sanitize_extraction_field`.
+            ctx = _to_lf(ctx)
             masked_c, masked_codes, mask_pfx = _mask_code_blocks(content)
             if "## Context" in masked_c:
                 # Strip any leading `## Context` header that `_extract_entity_context`
@@ -968,7 +977,7 @@ def _update_existing_page_body(
                     # Nothing left after stripping the header — skip.
                     pass
                 else:
-                    subsection = f"\n### From {_inline_code(source_ref)}\n\n{ctx_body}\n"
+                    subsection = f"\n### From {_inline_code(_to_lf(source_ref))}\n\n{ctx_body}\n"
                     # Find END of Context section (next ## header OR end-of-string).
                     match = re.search(
                         r"(^## Context\n(?:.*\n)*?)(?=^## |\Z)",
@@ -991,11 +1000,11 @@ def _update_existing_page_body(
                 else:
                     content += f"\n{ctx}\n"
 
-        # #175 R5: the read text holds no CR, so any CR here came in with the
-        # inserted context. Turn it into LF on every page: on a CRLF page the restore
-        # then gives one CRLF per line, and on an LF page the result is the all-LF
-        # page the evidence append's `read_text` produced before #175.
-        content = content.replace("\r\n", "\n").replace("\r", "\n")
+        # #175 R5: the read text, `ctx` and `ref_line` are LF already and `safe_ref`
+        # is escaped; this guard keeps R5 from depending on that list. On a CRLF page
+        # the restore then gives one CRLF per line; on an LF page the result is the
+        # all-LF page the evidence append's `read_text` produced before #175.
+        content = _to_lf(content)
         # Fix 2.1: Use atomic write. Cycle 20 AC11 — still inside file_lock(page_path).
         atomic_text_write(restore_line_ends(content, original, line_ends), page_path)
     # Lock released — caller (`_update_existing_page`) now safely invokes
