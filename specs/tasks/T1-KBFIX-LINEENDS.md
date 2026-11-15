@@ -1,7 +1,7 @@
 ---
 id: T1-KBFIX-LINEENDS
 title: "`kb.utils.line_ends` restores a page's line ends after any number of edits, added lines taking the page's most-used end, and the linker uses it (#175, part 1)"
-status: todo
+status: merged
 branch: T1-KBFIX-LINEENDS
 worktree: D:\wt\llm-wiki-flywheel\T1-KBFIX-LINEENDS
 plan_ref: plans/kb-fixes-2.md#order-of-work
