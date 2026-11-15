@@ -672,7 +672,7 @@ def test_atomic_text_write_patch_reaches_dead_link_fix_submodule(monkeypatch, tm
     fixes = _fix_dead_links(wiki_dir, broken_links=[{"source": "concepts/a", "target": "missing"}])
 
     assert fixes
-    assert writes == [(page.read_text(encoding="utf-8").replace("[[missing]]", "missing"), page)]
+    assert writes == [(page.read_bytes().decode("utf-8").replace("[[missing]]", "missing"), page)]
 
 
 def test_parse_inline_callouts_patch_reaches_inline_submodule(monkeypatch, tmp_path):
