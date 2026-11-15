@@ -115,3 +115,23 @@ ruff check src/ tests/ && python -m pytest tests/test_kbfix_crlf_writers.py test
 - Cause: on an all-LF page the body write keeps the inserted `\r\n` (R4 for the body writer), and the evidence append that `_update_existing_page` runs next then reads a page that holds a CRLF, so `restore_line_ends` keeps that line's CRLF. Before this card the evidence append's `read_text` turned every CR into LF, so the composed call wrote an all-LF page. A condition evaluated per writer cannot give the composed call the pre-card bytes on an LF page; acceptance 8's LF case and a conditional body writer conflict.
 - Measured alternative, not committed: the body writer normalises inserted CR unconditionally, while the evidence writer stays conditional. On a scratch copy of `d46bc32`'s src, `test_kbfix_crlf_writers.py`, `test_ingest.py`, `test_cycle24_evidence_sentinel_anchored.py` and `test_cycle81_page_lock.py` gave `195 passed`. Trade-off: `_update_existing_page_body` alone on an LF page with CR in the inserted context then writes LF where it wrote CR before (R4 literal), which persists only if the following evidence append fails; its only caller is `_update_existing_page`.
 - Follow-up note (outside this card): the comment at `src/kb/ingest/pipeline.py` after the body write says `append_evidence_trail` "acquires its own `file_lock(page_path)`"; since cycle 81 it re-enters `page_lock`.
+
+#### Attempt 3, resumed: paused at `d46bc32` for an owner-side contract ruling, resumed after `e89c9dc` (option A)
+
+- Base sync: merge `f5f013c` (origin/main `e89c9dc`: R4 names the public writers, R5 body writer on every page, R6 evidence writer on CRLF pages; no conflict).
+- Commits: `37cecd3` (`_update_existing_page_body` drops the `if "\r\n" in line_ends:` guard and turns inserted CRLF and lone CR into LF on every page; comment updated; `append_evidence_trail` keeps its guard), `23db60b` (docs: R5/R6 wording in `architecture.md`, `CHANGELOG.md`, `CHANGELOG-history.md`; `CLAUDE.md` State `3929 tests across 224 test files`; `scripts/verify_docs.py`: collected 3929, files 224, `OK - docs in sync`).
+- DoD (`23db60b`, Windows, main checkout `.venv`, command exactly as in the card): exit 0. `ruff check src/ tests/`: `All checks passed!`; pytest: `652 passed, 4 skipped, 3 warnings in 43.72s`; `6 snapshots passed.`
+- Full suite (`23db60b`, `python -m pytest -q -p no:cacheprovider`, nothing deselected): exit 0, `3883 passed, 29 skipped, 17 xfailed, 54 warnings in 455.42s` (3929 collected).
+- `git diff --numstat origin/main...HEAD` (`23db60b`): `12 0 CHANGELOG-history.md`, `1 0 CHANGELOG.md`, `1 1 CLAUDE.md`, `1 1 docs/reference/architecture.md`, `51 0 specs/tasks/T1-KBFIX-CRLFWRITERS.md`, `10 2 src/kb/ingest/evidence.py`, `12 7 src/kb/ingest/pipeline.py`, `5 3 src/kb/lint/checks/dead_links.py`, `2 2 tests/test_ingest.py`, `479 0 tests/test_kbfix_crlf_writers.py`, `1 1 tests/test_lint.py`.
+- Follow-up note (unchanged, outside this card): the comment after the body write in `src/kb/ingest/pipeline.py` says `append_evidence_trail` "acquires its own `file_lock(page_path)`"; since cycle 81 it re-enters `page_lock`.
+
+| Acceptance | Test or command | Status |
+|---|---|---|
+| 1 | `test_reingest_with_context_keeps_crlf_and_matches_lf_copy` | pass |
+| 2 | `test_fresh_references_block_keeps_crlf[no-references, references-header-not-matched]`, `test_context_inserted_before_references_keeps_crlf` | pass |
+| 3 | `test_evidence_append_keeps_crlf_in_each_branch[sentinel-in-section, header-without-sentinel, no-header]` | pass |
+| 4 | `test_dead_links_fix_keeps_crlf_and_leaves_clean_page_unwritten`, `test_dead_link_only_inside_code_leaves_crlf_page_unwritten` | pass |
+| 5 | `test_mixed_page_keeps_the_lf_of_an_unchanged_line[ingest-body, evidence, dead-links]`, `test_lf_page_is_written_with_the_same_bytes_as_before[ingest-body, evidence, dead-links]` | pass |
+| 6 | DoD exit 0; full suite exit 0; existing-test edits limited to `tests/test_ingest.py` (`counting_read` spy) and `tests/test_lint.py` (one expected-value line) | pass |
+| 7 | `architecture.md` (three writers next to the linker, inserted-CR rule), one entry each in `CHANGELOG.md` and `CHANGELOG-history.md`, `CLAUDE.md` State `3929 tests across 224 test files` = `verify_docs.py` | pass (reviewer to verify) |
+| 8 | `test_cr_in_inserted_context_is_written_crlf_on_crlf_page[extraction, direct-ctx]`, `test_cr_in_inserted_context_on_lf_page_writes_the_bytes_of_before[extraction, direct-ctx]`, `test_cr_in_evidence_action_is_written_crlf_on_crlf_page`, `test_cr_in_evidence_action_on_lf_page_writes_the_bytes_of_before` (RED `e378b83`: 5 failed, 1 passed) | pass |
