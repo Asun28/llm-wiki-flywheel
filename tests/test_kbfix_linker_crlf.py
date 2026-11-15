@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from kb.compile.linker import inject_wikilinks, inject_wikilinks_batch
+from kb.utils.markdown import FRONTMATTER_RE
 from kb.utils.pages import load_all_pages
 
 _TARGET = "concepts/hydration"
@@ -42,11 +43,11 @@ def _write(wiki: Path, data: bytes) -> Path:
     return path
 
 
-def _inject(api: str, wiki: Path) -> list[str]:
+def _inject(api: str, wiki: Path, title: str = "Hydration") -> list[str]:
     if api == "single":
-        return inject_wikilinks("Hydration", _TARGET, wiki_dir=wiki)
+        return inject_wikilinks(title, _TARGET, wiki_dir=wiki)
     pages = load_all_pages(wiki) if api == "batch-pages" else None
-    return inject_wikilinks_batch([("Hydration", _TARGET)], wiki_dir=wiki, pages=pages)[_TARGET]
+    return inject_wikilinks_batch([(title, _TARGET)], wiki_dir=wiki, pages=pages)[_TARGET]
 
 
 # --- Acceptance 1 [R1] -----------------------------------------------------
@@ -86,11 +87,39 @@ def test_lone_cr_endings_are_written_as_lf(tmp_wiki, api):
 # --- Acceptance 3 [R2] -----------------------------------------------------
 
 
+# The empty heading "###" holds the title "###" (R3 F1): `_ATX_HEADING_RE`
+# needs its `$` right after the hashes, which a kept CR would block.
+@pytest.mark.parametrize(
+    ("title", "heading"),
+    [("Hydration", "## Hydration"), ("###", "###")],
+    ids=["heading", "empty-heading"],
+)
 @pytest.mark.parametrize("api", _APIS)
-def test_crlf_page_matching_only_in_a_heading_is_not_written(tmp_wiki, api):
-    before = _page("\r\n", ["## Hydration", "", "Bread is baked."])
+def test_crlf_page_matching_only_in_a_heading_is_not_written(tmp_wiki, api, title, heading):
+    before = _page("\r\n", [heading, "", "Bread is baked."])
     path = _write(tmp_wiki, before)
     old = os.stat(path).st_mtime_ns - 10_000_000_000
     os.utime(path, ns=(old, old))
-    assert _inject(api, tmp_wiki) == []
+    assert _inject(api, tmp_wiki, title) == []
     assert (path.read_bytes(), os.stat(path).st_mtime_ns) == (before, old)
+
+
+# --- R3 F2: CRLF frontmatter near FRONTMATTER_RE's 10,000-character bound ---
+
+_FILLER = [f"note{i:03d}: {'x' * 30}" for i in range(245)]
+
+
+def _long_frontmatter_page(nl: str, body_line: str) -> bytes:
+    lines = ["---", 'title: "Hydration"', *_FILLER, "---", "", "## Hydration", "", body_line]
+    return (nl.join(lines) + nl).encode("utf-8")
+
+
+@pytest.mark.parametrize("api", _APIS)
+def test_crlf_frontmatter_near_the_bound_stays_unlinked(tmp_wiki, api):
+    before = _long_frontmatter_page("\r\n", "Hydration matters.")
+    # The block fits the bound with LF line ends and exceeds it with CRLF ones.
+    assert FRONTMATTER_RE.match(before.decode("utf-8").replace("\r\n", "\n"))
+    assert not FRONTMATTER_RE.match(before.decode("utf-8"))
+    path = _write(tmp_wiki, before)
+    assert _inject(api, tmp_wiki) == ["entities/bread"]
+    assert path.read_bytes() == _long_frontmatter_page("\r\n", f"{_LINK} matters.")
