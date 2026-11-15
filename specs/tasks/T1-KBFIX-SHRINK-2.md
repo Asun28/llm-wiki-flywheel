@@ -1,7 +1,7 @@
 ---
 id: T1-KBFIX-SHRINK-2
 title: "`refine_page` refuses a new body under half the current body unless `allow_shrink=True`, which the review history records; `kb_refine_page` passes the flag through (#162)"
-status: todo
+status: merged
 branch: T1-KBFIX-SHRINK-2
 worktree: D:\wt\llm-wiki-flywheel\T1-KBFIX-SHRINK-2
 plan_ref: plans/kb-defects-1.md#order-of-work
