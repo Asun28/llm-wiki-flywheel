@@ -155,3 +155,38 @@ R3 (codex, decision 2/4) blocked `a055f82` with three findings of the same kind:
 | second owner figure as `*` bullet, with `\:`, in a code block, in an HTML block, with ` : ` | `Rows with an owner ruling: rendered ['3', ...], expected ['3']` |
 | second kappa with a curly apostrophe | `Cohen's kappa: rendered ['0.89', '0.10'], expected ['0.89']` |
 | HTML table in `Labels` | `Labels section holds 1 pieces of raw HTML` |
+
+## Attempt 4 evidence
+R3 (codex, decision 3/4) blocked `a5e4733` with one finding: a figure was counted only when a number followed its name in the same inline run, so a second figure written `+2`, or with its value in the next paragraph, was not counted. RED `f8d2b3a`, GREEN: the commit after it.
+
+### Commits
+- `f8d2b3a` RED: `test_label_checks_find_figures_by_name_and_label_rows_in_any_table`, with the reviewer's cases (`* Rows with an owner ruling: +2`, `* Rows with a null final: +2`, value in the next paragraph) plus a figure in image alt text, a second label table with a lower-case header, label rows under another header, and a band row in another table. Under the attempt-3 helpers 5 of the 7 cases pass (the two label-table cases were already caught as other tables in `Labels`). Result: 1 failed, 26 passed, `AssertionError`.
+- GREEN:
+  - `figure_errors` finds each figure by its name alone (any spacing or case, either apostrophe), whatever follows it; exactly one occurrence must be in the report, and it must read `<name>: <value>` with the recomputed value. The report's one other mention of a figure name (`What these numbers do not show`, in backticks) now reads "(see Labels)".
+  - `matching_tables`: a row named after a label or `null` (or a band) in any table other than the one label (or band) table is an error, whatever that table's header.
+  - `plain` includes image alt text; all rendered text is NFKC-normalised with format characters (zero-width spaces, soft hyphens) removed, so a name cannot be hidden by them.
+  - `html_errors`: no raw HTML anywhere in the report (it holds none), not only in `Labels`.
+  - 27 passed; whole bench suite 370 passed, 4 skipped.
+
+### Findings
+| Finding | Fix | Tests |
+|---|---|---|
+| 1 figure-occurrences-unchecked (signed value, value in the next paragraph) | figures found by name, then the one occurrence's value checked | `test_label_checks_find_figures_by_name_and_label_rows_in_any_table`, `test_labels_section_renders_each_figure_once_with_its_recomputed_value` |
+| same class, tables | label and band rows in any other table are errors | same regression test (label and band cases) |
+
+### Acceptance
+| Item | Proving test or command | Result |
+|---|---|---|
+| 1 [R1] | `git diff origin/main...HEAD -- bench/knowledge/labels.jsonl` (3 lines; `final` and `ownerRuled` only); `test_labels_are_in_the_closed_set_and_final_follows_the_rule` | pass |
+| 2 [R2] [R4] | `test_labels_section_renders_each_figure_once_with_its_recomputed_value`, `test_labels_section_states_owner_ruled_count_recomputed_from_labels`, `test_labels_section_states_agreement_kappa_and_null_count_recomputed_from_labels`, `test_label_checks_find_figures_by_name_and_label_rows_in_any_table` | pass |
+| 3 [R2] [R4] | `test_label_count_table_equals_counts_recomputed_from_labels`, `test_final_by_band_table_equals_counts_recomputed_from_labels`, `test_table_checks_reject_an_extra_row_placed_before_the_correct_one`, `test_label_checks_cover_every_rendered_row_table_and_figure`, `test_report_holds_no_raw_html` | pass |
+| 4 [R4] | `test_every_number_in_the_report_comes_from_summary_or_labels` | pass |
+| 5 [R3] [R5] | reviewer; both changelog entries; `git diff --numstat origin/main...HEAD -- src/kb templates tests pyproject.toml requirements.txt bench/knowledge/summary.json` | empty; for review |
+
+### Probes on the GREEN helpers (each a one-change copy of the committed report; none committed)
+| Probe | Reported as |
+|---|---|
+| second owner figure `+2`; second null figure `+2`; value in the next paragraph; in image alt text; with a zero-width space in the name; with one word in bold; in another section | `<figure>: shown 2 times` |
+| HTML block outside `Labels` | `raw HTML in sections ['What these numbers do not show']` |
+| `low` row in a table with header `Group` | `band table: row 'low' in a table with header 'Group'` |
+| `Supported` row in a table with header `Count` in another section | `label table: row 'Supported' in a table with header 'Count'` |

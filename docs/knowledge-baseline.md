@@ -213,7 +213,7 @@ Verdict: confirmed
 
 ## What these numbers do not show
 
-- Support. The containment bands measure copied wording, not whether a source supports a sentence. The labels are from two models on the sample sentences of one corpus. The owner ruled only on the rows where the two differ (`Rows with an owner ruling`) and did not review the rows where they agree. No verifier was calibrated, so I2 has labels and no measured verifier accuracy.
+- Support. The containment bands measure copied wording, not whether a source supports a sentence. The labels are from two models on the sample sentences of one corpus. The owner ruled only on the rows where the two differ (see Labels) and did not review the rows where they agree. No verifier was calibrated, so I2 has labels and no measured verifier accuracy.
 - Correctness of query answers. The citations probe uses a scripted answer, so it shows how the query path treats citations, not how often a model cites a page outside its context or whether a cited page supports the sentence that cites it.
 - The vector branch. `retrieval.hybrid` is unmeasured (issue #154), so nothing here says how the embedding model handles Chinese or cross-language queries.
 - Cache-key coverage. `rebuild.scan` is unmeasured because `ingest_source` writes no `_template` keys, so nothing here says whether a model-id, template or source change is seen by the changed-source scan.

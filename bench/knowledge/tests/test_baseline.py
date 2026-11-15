@@ -1,4 +1,4 @@
-"""Acceptance tests 1-5 of card T1-KBEVAL-BASELINE.
+"""Acceptance tests 1-5 of card T1-KBEVAL-BASELINE, and 2-4 of T0-KBEVAL-RULINGS.
 
 They read the three committed baseline files: `bench/knowledge/summary.json`
 (the records of one bench run), `bench/knowledge/labels.jsonl` (the two-labeller
@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from collections import Counter
 
 import pytest
@@ -316,11 +317,19 @@ def plain(inline) -> str:
     """Rendered text of an inline token. Raw HTML is left out: it does not show as text."""
     parts = []
     for child in inline.children or []:
-        if child.type in ("text", "text_special", "code_inline"):
+        # An image's `content` is its alt text, which shows when the image does not load.
+        if child.type in ("text", "text_special", "code_inline", "image"):
             parts.append(child.content)
         elif child.type in ("softbreak", "hardbreak"):
             parts.append("\n")
-    return "".join(parts)
+    return visible("".join(parts))
+
+
+def visible(text: str) -> str:
+    """`text` as it reads: NFKC-normalised, with format characters (zero-width spaces,
+    soft hyphens) removed, so a name cannot be hidden from the checks by them."""
+    text = unicodedata.normalize("NFKC", text)
+    return "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
 
 
 def rendered(text: str) -> tuple[list[Table], list[str], list[str]]:
@@ -344,7 +353,7 @@ def rendered(text: str) -> tuple[list[Table], list[str], list[str]]:
             tables.append((section, cells[0], [(r[0], r[1:]) for r in cells[1:]]))
             cells = None
         elif token.type in ("fence", "code_block", "html_block"):
-            texts.append(token.content)
+            texts.append(visible(token.content))
             if token.type == "html_block":
                 html.append(section)
         elif token.type == "inline":
@@ -356,16 +365,25 @@ def rendered(text: str) -> tuple[list[Table], list[str], list[str]]:
 
 
 def matching_tables(
-    text: str, first_header: str, label: str
+    text: str, first_header: str, row_names: set[str], label: str
 ) -> tuple[list[str], list[Row], list[str]]:
     """Header and rows of every table whose header starts with `first_header`; an error
     unless there is exactly one and it is in the Labels section. Rows of every match are
-    returned, so a second table's rows are compared too."""
-    found = [t for t in rendered(text)[0] if t[1] and t[1][0] == first_header]
+    returned, so a second table's rows are compared too. A row named like one of
+    `row_names` (any case) in any other table shows a second value, and is an error."""
+    tables = rendered(text)[0]
+    found = [t for t in tables if t[1] and t[1][0] == first_header]
     errors = []
     if len(found) != 1:
         errors.append(f"{label}: {len(found)} tables with header {first_header!r}")
     errors += [f"{label}: table under {s!r}" for s, _, _ in found if s != "Labels"]
+    others = [t for t in tables if not any(t is f for f in found)]
+    errors += [
+        f"{label}: row {name!r} in a table with header {header[0]!r}"
+        for _, header, other_rows in others
+        for name, _ in other_rows
+        if name.lower() in row_names
+    ]
     if not found:
         return [], [], errors
     return found[0][1], [row for t in found for row in t[2]], errors
@@ -388,23 +406,31 @@ def figure_errors(text: str, rows: list[dict]) -> list[str]:
     texts = rendered(text)[1]
     errors = []
     for name, value in expected.items():
-        # Any spacing or case, either apostrophe, then an optional `:` or `=` and a number.
+        # A figure is found by its name alone (any spacing or case, either apostrophe),
+        # whatever follows it, so a second one cannot hide behind a value the check does
+        # not parse. The one occurrence must then read `<name>: <value>` exactly.
         words = r"\s+".join(re.escape(w).replace("'", "['’]") for w in name.split())
-        pattern = re.compile(rf"{words}\s*[:=]?\s*(-?\d+(?:\.\d+)?)", re.IGNORECASE)
-        found = [m.group(1) for t in texts for m in pattern.finditer(t)]
-        if found != [value]:
-            errors.append(f"{name}: rendered {found}, expected [{value!r}]")
+        pattern = re.compile(words, re.IGNORECASE)
+        found = [(t, m.end()) for t in texts for m in pattern.finditer(t)]
+        if len(found) != 1:
+            errors.append(f"{name}: shown {len(found)} times")
+            continue
+        t, end = found[0]
+        stated = re.match(r":\s*(\S+)", t[end:])
+        if not stated or stated.group(1) != value:
+            errors.append(f"{name}: reads {t[end : end + 20]!r}, expected ': {value}'")
     return errors
 
 
-def labels_html_errors(text: str) -> list[str]:
-    """Raw HTML in the Labels section could show a figure or table the checks do not read."""
-    found = [s for s in rendered(text)[2] if s == "Labels"]
-    return [f"Labels section holds {len(found)} pieces of raw HTML"] if found else []
+def html_errors(text: str) -> list[str]:
+    """Raw HTML anywhere in the report could show a figure or table the checks do not
+    read as one; the report holds none."""
+    found = rendered(text)[2]
+    return [f"raw HTML in sections {sorted(set(found))}"] if found else []
 
 
-def test_labels_section_holds_no_raw_html():
-    assert labels_html_errors(report()) == []
+def test_report_holds_no_raw_html():
+    assert html_errors(report()) == []
 
 
 def test_labels_section_renders_each_figure_once_with_its_recomputed_value():
@@ -430,7 +456,7 @@ def test_labels_section_states_owner_ruled_count_recomputed_from_labels():
 
 def label_table_errors(body: str, rows: list[dict]) -> list[str]:
     """One message per way the label-count table differs from the counts of `rows`."""
-    header, table_rows, errors = matching_tables(body, "Label", "label table")
+    header, table_rows, errors = matching_tables(body, "Label", LABEL_SET | {"null"}, "label table")
     others = [
         t[1]
         for t in rendered(body)[0]
@@ -458,7 +484,8 @@ def label_table_errors(body: str, rows: list[dict]) -> list[str]:
 
 def band_table_errors(body: str, rows: list[dict]) -> list[str]:
     """One message per way the `final`-by-band table differs from the counts of `rows`."""
-    header, table_rows, errors = matching_tables(body, "Band", "band table")
+    bands = {row["band"].lower() for row in rows}
+    header, table_rows, errors = matching_tables(body, "Band", bands, "band table")
     if not header or header[0] != "Band" or not set(header[1:]) <= LABEL_SET | {"null"}:
         return errors + [f"band table: header {header}"]
     errors += [f"band table: column {name} appears more than once" for name in repeated(header)]
@@ -558,7 +585,7 @@ def test_label_checks_cover_every_rendered_row_table_and_figure():
     for case in figure_cases:
         assert case != text and figure_errors(case, rows) != []
     for case in html_cases:
-        assert case != text and labels_html_errors(case) != []
+        assert case != text and html_errors(case) != []
 
 
 def test_label_checks_find_figures_by_name_and_label_rows_in_any_table():
@@ -572,6 +599,7 @@ def test_label_checks_find_figures_by_name_and_label_rows_in_any_table():
         insert_after(text, figure, "* Rows with a null final: +2\n"),
         insert_after(text, figure, "\nRows with an owner ruling:\n\n2\n"),
         insert_after(text, figure, "\n![Rows with an owner ruling: 2](x.png)\n"),
+        insert_after(text, figure, "* Rows with an own​er ruling: 2\n"),
     ]
     label_cases = [
         insert_after(
