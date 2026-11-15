@@ -78,15 +78,21 @@ def _unmask_code_blocks(text: str, masked: list[str], prefix: str) -> str:
     return text
 
 
-def _read_page_text(path: Path) -> str:
-    """Read a page the injectors may rewrite, keeping its line endings (#168).
+# A CR not followed by LF. `FRONTMATTER_RE` and `_ATX_HEADING_RE` recognise
+# only LF and CRLF line ends.
+_LONE_CR_RE = re.compile(r"\r(?!\n)")
 
-    ``Path.read_text`` translates CRLF and lone CR to LF, and
-    ``atomic_text_write`` writes the text as given, so a page read that way
-    came back with LF endings. ``Path.read_text(newline=...)`` needs Python
-    3.13; decoding the bytes works on 3.12.
+
+def _read_page_text(path: Path) -> str:
+    """Read a page the injectors may rewrite, keeping its CRLF and LF line ends (#168).
+
+    ``Path.read_text`` turns every CRLF and lone CR into LF, and
+    ``atomic_text_write`` writes the text as given, so a CRLF page came back
+    with LF. ``Path.read_text(newline="")`` needs Python 3.13, so the bytes
+    are decoded here. A lone CR still becomes LF: kept, it would hide a
+    lone-CR page's frontmatter and headings from the masks.
     """
-    return path.read_bytes().decode("utf-8")
+    return _LONE_CR_RE.sub("\n", path.read_bytes().decode("utf-8"))
 
 
 # ATX heading line: 0-3 spaces, 1-6 `#`, then a space, a tab or end of line.

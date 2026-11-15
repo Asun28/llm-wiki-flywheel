@@ -62,16 +62,25 @@ def test_page_keeps_its_line_endings(tmp_wiki, api, nl):
 
 # --- Acceptance 2 [R1] -----------------------------------------------------
 
-_MIXED_BODY = "## Hydration\r\n\nIntro.\rHydration matters.\nLast line.\r\n"
+_MIXED_BODY = "## Hydration\r\n\nIntro.\r\nHydration matters.\nLast line.\r\n"
 
 
 @pytest.mark.parametrize("api", _APIS)
-def test_mixed_line_endings_are_kept(tmp_wiki, api):
+def test_mixed_crlf_and_lf_endings_are_kept(tmp_wiki, api):
     head = _page("\r\n", [])
     path = _write(tmp_wiki, head + _MIXED_BODY.encode("utf-8"))
     assert _inject(api, tmp_wiki) == ["entities/bread"]
-    expected_body = "## Hydration\r\n\nIntro.\r" + f"{_LINK} matters.\nLast line.\r\n"
+    expected_body = "## Hydration\r\n\nIntro.\r\n" + f"{_LINK} matters.\nLast line.\r\n"
     assert path.read_bytes() == head + expected_body.encode("utf-8")
+
+
+@pytest.mark.parametrize("api", _APIS)
+def test_lone_cr_endings_are_written_as_lf(tmp_wiki, api):
+    # The frontmatter and heading patterns see only LF and CRLF line ends, so a
+    # lone CR becomes LF (as Path.read_text did) and the heading stays unlinked.
+    path = _write(tmp_wiki, _page("\r", ["## Hydration", "", "Hydration matters."]))
+    assert _inject(api, tmp_wiki) == ["entities/bread"]
+    assert path.read_bytes() == _page("\n", ["## Hydration", "", f"{_LINK} matters."])
 
 
 # --- Acceptance 3 [R2] -----------------------------------------------------
