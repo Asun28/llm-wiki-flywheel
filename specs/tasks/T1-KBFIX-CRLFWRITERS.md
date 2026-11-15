@@ -80,3 +80,23 @@ ruff check src/ tests/ && python -m pytest tests/test_kbfix_crlf_writers.py test
 | 5 | `test_mixed_page_keeps_the_lf_of_an_unchanged_line[3 writers]`, `test_lf_page_is_written_with_the_same_bytes_as_before[3 writers]` | pass |
 | 6 | DoD | FAIL: `test_lint.py::test_atomic_text_write_patch_reaches_dead_link_fix_submodule` (Windows only) |
 | 7 | docs | not started |
+
+### Attempt 2 (2026-11-16): card amended on main (f64df69), DoD and full suite green
+
+- Base sync: merge `5979da6` (origin/main `f64df69` into the branch; no conflict, attempt-1 evidence kept). No rebase or amend.
+- Commits: `07e2352` (`tests/test_lint.py::test_atomic_text_write_patch_reaches_dead_link_fix_submodule`: expected write computed from `page.read_bytes().decode("utf-8")` instead of `page.read_text(encoding="utf-8")`; fixture `_write_pkg_const_fold_page` and every other assertion unchanged), `a7474e4` (docs). Src unchanged since `f157ebb`.
+- DoD (`a7474e4`, Windows, main checkout `.venv`, command exactly as in the card): exit 0. `ruff check src/ tests/`: `All checks passed!`; pytest: `646 passed, 4 skipped, 3 warnings in 44.15s`; `6 snapshots passed.`
+- Full suite (`a7474e4`, `python -m pytest -q -p no:cacheprovider`, nothing deselected): exit 0, `3877 passed, 29 skipped, 17 xfailed, 54 warnings in 258.35s` (3923 collected).
+- `scripts/verify_docs.py` (`a7474e4`): `pytest collected tests = 3923`, `test file count = 224`, `OK - docs in sync`.
+- `git diff --numstat origin/main...HEAD` (`a7474e4`): `11 0 CHANGELOG-history.md`, `1 0 CHANGELOG.md`, `1 1 CLAUDE.md`, `1 1 docs/reference/architecture.md`, `22 0 specs/tasks/T1-KBFIX-CRLFWRITERS.md`, `6 2 src/kb/ingest/evidence.py`, `7 7 src/kb/ingest/pipeline.py`, `5 3 src/kb/lint/checks/dead_links.py`, `2 2 tests/test_ingest.py`, `351 0 tests/test_kbfix_crlf_writers.py`, `1 1 tests/test_lint.py`.
+- Follow-up note (not changed, outside this card): the comment at `src/kb/ingest/pipeline.py:996` says `append_evidence_trail` "acquires its own `file_lock(page_path)`"; since cycle 81 it re-enters `page_lock`.
+
+| Acceptance | Test or command | Status |
+|---|---|---|
+| 1 | `test_reingest_with_context_keeps_crlf_and_matches_lf_copy` | pass |
+| 2 | `test_fresh_references_block_keeps_crlf[no-references, references-header-not-matched]`, `test_context_inserted_before_references_keeps_crlf` | pass |
+| 3 | `test_evidence_append_keeps_crlf_in_each_branch[sentinel-in-section, header-without-sentinel, no-header]` | pass |
+| 4 | `test_dead_links_fix_keeps_crlf_and_leaves_clean_page_unwritten`, `test_dead_link_only_inside_code_leaves_crlf_page_unwritten` | pass |
+| 5 | `test_mixed_page_keeps_the_lf_of_an_unchanged_line[ingest-body, evidence, dead-links]`, `test_lf_page_is_written_with_the_same_bytes_as_before[ingest-body, evidence, dead-links]` | pass |
+| 6 | DoD exit 0; full suite exit 0; existing-test edits limited to `tests/test_ingest.py` (`counting_read` spy) and `tests/test_lint.py` (one expected-value line) | pass |
+| 7 | `docs/reference/architecture.md` (three writers named next to the linker), `CHANGELOG.md` and `CHANGELOG-history.md` (one entry each), `CLAUDE.md` State `3923 tests across 224 test files` = `verify_docs.py` | pass (reviewer to verify) |
