@@ -1,7 +1,7 @@
 ---
 id: T0-KBFIX-CRLF
 title: "Wikilink injection writes a page back with its own CRLF or LF line endings (#168)"
-status: todo
+status: merged
 branch: T0-KBFIX-CRLF
 worktree: D:\wt\llm-wiki-flywheel\T0-KBFIX-CRLF
 allow_paths:
