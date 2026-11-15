@@ -67,7 +67,12 @@ def kb_review_page(page_id: str) -> str:
 # (`build_backlinks()` with no args) after the page write.
 @register_long_tool
 @_mcp_error_boundary
-def kb_refine_page(page_id: str, updated_content: str, revision_notes: str = "") -> str:
+def kb_refine_page(
+    page_id: str,
+    updated_content: str,
+    revision_notes: str = "",
+    allow_shrink: bool = False,
+) -> str:
     """Update a wiki page's content while preserving frontmatter.
 
     Used after review or self-critique to apply improvements.
@@ -77,6 +82,8 @@ def kb_refine_page(page_id: str, updated_content: str, revision_notes: str = "")
         page_id: Page to update (e.g., 'concepts/rag').
         updated_content: New markdown body (frontmatter preserved automatically).
         revision_notes: What changed and why.
+        allow_shrink: Accept a new body under half the current body's length.
+            Refused by default; an override is recorded in the review history.
     """
     # F2 (Phase 4.5 MEDIUM): cap page_id + revision_notes up front, before
     # path construction and log writes. Prevents pathological lengths from
@@ -100,7 +107,7 @@ def kb_refine_page(page_id: str, updated_content: str, revision_notes: str = "")
     try:
         from kb.review.refiner import refine_page
 
-        result = refine_page(page_id, updated_content, revision_notes)
+        result = refine_page(page_id, updated_content, revision_notes, allow_shrink=allow_shrink)
     except Exception as e:
         logger.exception("Unexpected error refining %s", page_id)
         return f"Error refining {page_id}: {sanitize_error_text(e)}"

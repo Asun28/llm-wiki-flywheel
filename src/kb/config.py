@@ -635,6 +635,9 @@ MAX_PAGE_SCORES = 10_000
 # ── Feedback store input limits ────────────────────────────────
 MAX_QUESTION_LEN = 2000
 MAX_NOTES_LEN = 2000
+# T1-KBFIX-SHRINK (#162): `refine_page` refuses a new body under this fraction of
+# the current body (stripped character counts) unless `allow_shrink=True`.
+REFINE_MIN_BODY_RATIO = 0.5
 VALID_SEVERITIES = ("error", "warning", "info")
 VALID_VERDICT_TYPES: tuple[str, ...] = (
     "fidelity",
