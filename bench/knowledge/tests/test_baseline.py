@@ -335,27 +335,27 @@ FIGURES = (
 )
 
 
-def figure_errors(body: str) -> list[str]:
+def figure_errors(text: str, rows: list[dict]) -> list[str]:
     """Each Labels figure must be stated once: the checks read the first one only."""
     errors = []
     for name in FIGURES:
-        found = len(re.findall(rf"^- {re.escape(name)}: ", body, flags=re.MULTILINE))
+        found = len(re.findall(rf"^- {re.escape(name)}: ", text, flags=re.MULTILINE))
         if found != 1:
             errors.append(f"{name}: stated {found} times")
     return errors
 
 
 def test_labels_section_states_each_figure_once():
-    body = sections(report()).get("Labels", "")
-    assert figure_errors(body) == []
+    text = report()
+    assert figure_errors(text, label_rows()) == []
     doubled = re.sub(
         r"^(- Rows with an owner ruling: .*\n)",
         r"\1- Rows with an owner ruling: 2\n",
-        body,
+        text,
         count=1,
         flags=re.MULTILINE,
     )
-    assert doubled != body and figure_errors(doubled) != []
+    assert doubled != text and figure_errors(doubled, label_rows()) != []
 
 
 def test_labels_section_states_owner_ruled_count_recomputed_from_labels():
@@ -416,22 +416,70 @@ def band_table_errors(body: str, rows: list[dict]) -> list[str]:
     return errors
 
 
-def labels_body() -> str:
-    return sections(report()).get("Labels", "")
-
-
 def test_label_count_table_equals_counts_recomputed_from_labels():
-    assert label_table_errors(labels_body(), label_rows()) == []
+    assert label_table_errors(report(), label_rows()) == []
 
 
 def test_final_by_band_table_equals_counts_recomputed_from_labels():
-    assert band_table_errors(labels_body(), label_rows()) == []
+    assert band_table_errors(report(), label_rows()) == []
+
+
+def insert_after(text: str, prefix: str, new: str) -> str:
+    """`text` with `new` inserted after its one line that starts with `prefix`."""
+    lines = text.splitlines(keepends=True)
+    hits = [i for i, line in enumerate(lines) if line.startswith(prefix)]
+    assert len(hits) == 1, prefix
+    return "".join(lines[: hits[0] + 1]) + new + "".join(lines[hits[0] + 1 :])
+
+
+def test_label_checks_cover_every_rendered_row_table_and_figure():
+    # R3 decision 2 of T0-KBEVAL-RULINGS: a row written without its opening pipe, a
+    # second table with the same header, and a figure in another bullet, escaped or
+    # behind an HTML comment all render (or hide) a value, so each must be caught.
+    rows, text = label_rows(), report()
+    owner = sum(row["ownerRuled"] is True for row in rows)
+    second_label_table = "\n| Label | labelA | labelB | final |\n|---|---|---|---|\n"
+    second_band_table = "\n| Band | supported | partly-supported | not-a-claim | null |\n"
+    second_band_table += "|---|---|---|---|---|\n"
+    label_cases = [
+        insert_after(text, "| null |", "supported | 0 | 0 | 0 |\n"),
+        insert_after(
+            text, "`final` by containment band:", second_label_table + "| supported | 0 | 0 | 0 |\n"
+        ),
+    ]
+    band_cases = [
+        insert_after(text, "| low |", "low | 0 | 0 | 0 | 0 |\n"),
+        insert_after(text, "Label counts:", second_band_table + "| low | 0 | 0 | 0 | 0 |\n"),
+    ]
+    hidden = insert_after(
+        text, "Figures over all rows", f"\n<!-- Rows with an owner ruling: {owner} -->\n"
+    )
+    figure_cases = [
+        insert_after(
+            text, "- Rows with an owner ruling:", f"* Rows with an owner ruling: {owner + 1}\n"
+        ),
+        insert_after(
+            text, "- Rows with an owner ruling:", f"- Rows with an owner ruling\\: {owner + 1}\n"
+        ),
+        re.sub(
+            r"^- Rows with an owner ruling: \d+",
+            f"- Rows with an owner ruling: {owner + 1}",
+            hidden,
+            flags=re.M,
+        ),
+    ]
+    for case in label_cases:
+        assert case != text and label_table_errors(case, rows) != []
+    for case in band_cases:
+        assert case != text and band_table_errors(case, rows) != []
+    for case in figure_cases:
+        assert case != text and figure_errors(case, rows) != []
 
 
 def test_table_checks_reject_an_extra_row_placed_before_the_correct_one():
     # R3 decision 1 of T0-KBEVAL-RULINGS: a wrong row ahead of the right one with the
     # same name must not pass, nor may an exact copy of a correct row.
-    rows, body = label_rows(), labels_body()
+    rows, body = label_rows(), report()
     once = {"count": 1, "flags": re.M}
     wrong_label = re.sub(r"^\| supported \|", "| supported | 0 | 0 | 0 |\n\\g<0>", body, **once)
     wrong_band = re.sub(r"^\| low \|", "| low | 0 | 0 | 0 | 0 |\n\\g<0>", body, **once)
