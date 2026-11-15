@@ -251,4 +251,8 @@ def append_evidence_trail(
                 content.rstrip("\n") + "\n\n## Evidence Trail\n" + SENTINEL + "\n" + entry + "\n"
             )
 
+        if "\r\n" in line_ends:
+            # #175 R5: the read text holds no CR, so any CR here came in with the
+            # entry; turn it into LF so the restore gives one CRLF per line.
+            content = content.replace("\r\n", "\n").replace("\r", "\n")
         atomic_text_write(restore_line_ends(content, original, line_ends), page_path)

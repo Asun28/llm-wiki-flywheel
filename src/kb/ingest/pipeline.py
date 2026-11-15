@@ -991,6 +991,10 @@ def _update_existing_page_body(
                 else:
                     content += f"\n{ctx}\n"
 
+        if "\r\n" in line_ends:
+            # #175 R5: the read text holds no CR, so any CR here came in with the
+            # inserted context; turn it into LF so the restore gives one CRLF per line.
+            content = content.replace("\r\n", "\n").replace("\r", "\n")
         # Fix 2.1: Use atomic write. Cycle 20 AC11 — still inside file_lock(page_path).
         atomic_text_write(restore_line_ends(content, original, line_ends), page_path)
     # Lock released — caller (`_update_existing_page`) now safely invokes
