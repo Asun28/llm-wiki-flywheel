@@ -34,6 +34,7 @@ from kb.ingest.evidence import append_evidence_trail, render_initial_evidence_tr
 from kb.ingest.extractors import extract_from_source
 from kb.utils.hashing import hash_bytes
 from kb.utils.io import atomic_text_write, file_lock
+from kb.utils.line_ends import read_page_text, restore_line_ends
 from kb.utils.page_lock import page_lock
 from kb.utils.pages import load_all_pages, normalize_sources
 from kb.utils.paths import make_source_ref
@@ -854,12 +855,11 @@ def _update_existing_page_body(
     """
     with page_lock(page_path):
         # Fix 2.2: Read file exactly once; parse frontmatter from in-memory content (avoids TOCTOU).
-        content = page_path.read_text(encoding="utf-8")
-        # Cycle 6 AC7 — normalize CRLF → LF so `_SOURCE_BLOCK_RE` (LF-only, line 45)
-        # matches CRLF-encoded frontmatter. Without this, CRLF files fall through
-        # to the weak fallback at line ~456 which doesn't match either ending,
-        # producing silent double `source:` keys. `atomic_text_write` writes LF.
-        content = content.replace("\r\n", "\n")
+        # Cycle 6 AC7 + #175: `read_page_text` returns LF text, so `_SOURCE_BLOCK_RE`
+        # (LF-only) matches CRLF-encoded frontmatter, plus the page's own line ends,
+        # which `restore_line_ends` puts back at the write.
+        content, line_ends = read_page_text(page_path)
+        original = content
         # Check frontmatter sources specifically, not full content
         try:
             post = frontmatter.loads(content)
@@ -992,7 +992,7 @@ def _update_existing_page_body(
                     content += f"\n{ctx}\n"
 
         # Fix 2.1: Use atomic write. Cycle 20 AC11 — still inside file_lock(page_path).
-        atomic_text_write(content, page_path)
+        atomic_text_write(restore_line_ends(content, original, line_ends), page_path)
     # Lock released — caller (`_update_existing_page`) now safely invokes
     # `append_evidence_trail`, which acquires its own `file_lock(page_path)`.
     return True
