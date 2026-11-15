@@ -4,6 +4,7 @@ edits; an added line takes the page's most-used end (LF on a tie)."""
 
 from __future__ import annotations
 
+import os
 import random
 import time
 
@@ -67,13 +68,42 @@ def test_replaced_lines_keep_their_own_end_on_a_mixed_page():
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [
-        ("a\nfirst\r\nsecond\nz\n", "a\nfirst second\r\nz\n"),
-        ("a\r\nfirst\nsecond\r\nz\r\n", "a\r\nfirst second\nz\r\n"),
+        ("a\nfirst\r\nsecond\nz\n", "a\nfirst second\nz\n"),
+        ("a\r\nfirst\nsecond\r\nz\r\n", "a\r\nfirst second\r\nz\r\n"),
     ],
     ids=["crlf-then-lf", "lf-then-crlf"],
 )
-def test_a_merged_line_keeps_the_first_replaced_lines_end(raw, expected):
+def test_a_merged_line_keeps_the_second_lines_end(raw, expected):
+    # Joining two lines removes the first line's end; the second line's end survives.
     assert _restore(raw, "a\nfirst second\nz\n") == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "text", "expected"),
+    [
+        # 3 CRLF and 1 LF: the split LF line's first part takes the most-used CRLF.
+        (
+            "a\r\nfirst second\nz\r\nw\r\n",
+            "a\nfirst\nsecond\nz\nw\n",
+            "a\r\nfirst\r\nsecond\nz\r\nw\r\n",
+        ),
+        # 1 CRLF and 3 LF: the split CRLF line's first part takes the most-used LF.
+        ("a\nfirst second\r\nz\nw\n", "a\nfirst\nsecond\nz\nw\n", "a\nfirst\nsecond\r\nz\nw\n"),
+    ],
+    ids=["lf-line-on-crlf-page", "crlf-line-on-lf-page"],
+)
+def test_a_split_line_gives_the_first_part_the_most_used_end_and_the_second_its_own(
+    raw, text, expected
+):
+    assert _restore(raw, text) == expected
+
+
+def test_an_edited_line_whose_old_text_recurs_later_keeps_its_own_end():
+    original = "matters\n\n\n\nx Hydration\n x \nmatters\nmatters"
+    ends = [LF, LF, LF, LF, CRLF, LF, CRLF]
+    text = "matters\n\n\n\nx Hydration\n x \n[[t|T]]ters\nmatters"  # seventh line edited
+    expected = "matters\n\n\n\nx Hydration\r\n x \n[[t|T]]ters\r\nmatters"
+    assert restore_line_ends(text, original, ends) == expected
 
 
 # --- Acceptance 4 [R4] -----------------------------------------------------
@@ -158,6 +188,49 @@ def test_random_multi_edits_keep_the_text_and_the_page_ends():
             assert LF not in result.replace(CRLF, ""), (case, raw, text, result)
         if kind == "all-lf":
             assert result == text, (case, raw, text, result)
+
+
+def _one_splice_restore(text: str, original: str, ends: list[str]) -> str:
+    """Oracle: PR 174's restore (`kb.compile.linker._restore_line_ends` at 4408d78).
+
+    Right for one splice: each LF before and after the splice keeps its end, and
+    an LF inside the inserted text gets LF. Copied verbatim.
+    """
+    if "\r\n" not in ends:
+        return text
+    head = len(os.path.commonprefix([original, text]))
+    tail = len(os.path.commonprefix([original[head:][::-1], text[head:][::-1]]))
+    n_head = original[:head].count("\n")
+    n_tail = original[len(original) - tail :].count("\n")
+    n_mid = text[head : len(text) - tail].count("\n")
+    new_ends = ends[:n_head] + ["\n"] * n_mid + ends[len(ends) - n_tail :]
+    parts = text.split("\n")
+    return "".join(part + end for part, end in zip(parts, new_ends, strict=False)) + parts[-1]
+
+
+_INSERTS = ["[[t|T]]", "", "x", "Same line.", "line 7", "## Heading", "]] "]
+
+
+def test_single_splices_on_mixed_pages_give_the_one_splice_restores_bytes():
+    rng = random.Random(174)
+    cases = 0
+    while cases < 3000:
+        n = rng.randint(2, 12)
+        lines = [_random_line(rng) for _ in range(n)]
+        n_ends = n if rng.random() < 0.7 else n - 1
+        ends = [rng.choice([CRLF, LF]) for _ in range(n_ends)]
+        if n_ends < 2:
+            continue
+        ends[0], ends[-1] = rng.sample([CRLF, LF], 2)  # mixed: both ends present
+        original = LF.join(lines[: n_ends + 1]) + (LF if n_ends == n else "")
+        if not original:
+            continue
+        start = rng.randrange(len(original) + 1)
+        stop = min(len(original), start + rng.randint(0, 20))
+        text = original[:start] + rng.choice(_INSERTS) + original[stop:]
+        expected = _one_splice_restore(text, original, ends)
+        assert restore_line_ends(text, original, ends) == expected, (original, ends, text)
+        cases += 1
 
 
 def test_a_5000_line_crlf_page_with_50_edits_restores_in_under_5_seconds():
