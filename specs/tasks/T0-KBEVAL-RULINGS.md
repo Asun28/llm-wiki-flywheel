@@ -59,3 +59,28 @@ ruff check bench/knowledge && python -m pytest bench/knowledge/tests/test_baseli
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+Attempt 1. RED `29f8555`, GREEN `05010c9`. Tests: `bench/knowledge/tests/test_baseline.py`.
+
+### Commits
+- `29f8555` RED: the three rulings in `labels.jsonl` (edited by a script that checked each row's labels differ, `final` is null and `ownerRuled` is false, and that every unchanged line re-serialises byte-equal) plus three new tests; the report is not updated. Result: 4 failed, 18 passed, every failure an `AssertionError`: the existing null-final check (`assert 3 == 0`), the owner-ruling figure (missing), the label-count table (`partly-supported` final `2` against `5`) and the band table (`low`/`partly-supported` `2` against `5`).
+- Control, same tests on the original `labels.jsonl` (stashed): 1 failed, 21 passed. The only failure is the owner-ruling figure, which the original report does not state; the two table tests pass, so they read the committed tables correctly before the change.
+- `05010c9` GREEN: the `Labels` section, one sentence of `What these numbers do not show` and both changelog entries. 22 passed.
+
+### Acceptance
+| Item | Proving test or command | Result |
+|---|---|---|
+| 1 [R1] | `git diff origin/main...HEAD -- bench/knowledge/labels.jsonl` (3 lines; `final` and `ownerRuled` only); `test_labels_are_in_the_closed_set_and_final_follows_the_rule` | pass |
+| 2 [R2] [R4] | `test_labels_section_states_owner_ruled_count_recomputed_from_labels`, `test_labels_section_states_agreement_kappa_and_null_count_recomputed_from_labels` | pass |
+| 3 [R2] [R4] | `test_label_count_table_equals_counts_recomputed_from_labels`, `test_final_by_band_table_equals_counts_recomputed_from_labels` | pass |
+| 4 [R4] | `test_every_number_in_the_report_comes_from_summary_or_labels` (allowed set now holds the owner-ruling count) | pass |
+| 5 [R3] [R5] | reviewer; both changelog entries; `git diff --numstat origin/main...HEAD -- src/kb templates tests pyproject.toml requirements.txt bench/knowledge/summary.json` | empty; for review |
+
+### Mutation checks (applied one at a time to the GREEN report, tests run, file restored; none committed)
+| Mutation | Caught by |
+|---|---|
+| M1 band table `low`/`partly-supported` 5 to 4 | `test_final_by_band_table_equals_counts_recomputed_from_labels` |
+| M2 `Rows with an owner ruling` 3 to 2 | `test_labels_section_states_owner_ruled_count_recomputed_from_labels` |
+| M3 label table `partly-supported` final 5 to 6 | `test_label_count_table_equals_counts_recomputed_from_labels` |
+| M4 band row `mid` deleted | `test_final_by_band_table_equals_counts_recomputed_from_labels` |
