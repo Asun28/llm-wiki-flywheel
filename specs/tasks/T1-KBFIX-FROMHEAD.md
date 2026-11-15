@@ -1,7 +1,7 @@
 ---
 id: T1-KBFIX-FROMHEAD
 title: "The linker never inserts a wikilink inside an ATX heading, and ingest writes the `### From` source ref as inline code (#161)"
-status: todo
+status: merged
 branch: T1-KBFIX-FROMHEAD
 worktree: D:\wt\llm-wiki-flywheel\T1-KBFIX-FROMHEAD
 plan_ref: plans/kb-defects-1.md#order-of-work
