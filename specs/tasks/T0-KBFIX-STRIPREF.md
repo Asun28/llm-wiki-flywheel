@@ -51,3 +51,14 @@ ruff check src/ tests/ && python -m pytest tests/test_kbfix_source_ref_stripped_
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+
+Attempt 1. RED at 0e3dde0: `test_ingest_refuses_a_reference_holding_a_character_the_frontmatter_deletes[del,nel,line-separator,paragraph-separator,bom,rlo,lri]` 7 failed (`DID NOT RAISE <class 'ValueError'>`), `test_an_updated_page_keeps_a_reference_the_frontmatter_can_hold[non-ascii]` passed, 4 POSIX cases skipped (Windows).
+
+| Acceptance item | Proving test or command | Result |
+|---|---|---|
+| 1. real files with DEL, NEL, U+2028, U+2029, BOM, RLO, LRI refused: `ValueError` matching `frontmatter cannot keep`, `repr` in the message, message unchanged by `yaml_sanitize`, sandbox snapshot unchanged | `test_ingest_refuses_a_reference_holding_a_character_the_frontmatter_deletes[del,nel,line-separator,paragraph-separator,bom,rlo,lri]` | pass |
+| 2. POSIX real files with U+0001, VT, U+001F refused the same way | `test_ingest_refuses_a_reference_holding_a_character_the_frontmatter_deletes[soh,vt,us]` | skipped on Windows; runs in CI (ubuntu-latest) |
+| 3. controls: `café.md` and (POSIX) `b<TAB>.md` ingest; the updated entity page's `source:` list holds the reference unchanged | `test_an_updated_page_keeps_a_reference_the_frontmatter_can_hold[non-ascii,tab]` | non-ascii pass; tab skipped on Windows, runs in CI |
+| 4. DoD green, no existing test edited, CHANGELOG / CHANGELOG-history entries, CLAUDE.md counts | DoD below; `git diff main --stat -- tests/` lists only the new file; `python scripts/verify_docs.py`: 3967 tests, 226 files, docs in sync | pass (reviewer-verified) |

@@ -39,7 +39,13 @@ from kb.utils.page_lock import page_lock
 from kb.utils.pages import load_all_pages, normalize_sources
 from kb.utils.paths import make_source_ref
 from kb.utils.sanitize import sanitize_text
-from kb.utils.text import sanitize_extraction_field, slugify, wikilink_display_escape, yaml_escape
+from kb.utils.text import (
+    sanitize_extraction_field,
+    slugify,
+    wikilink_display_escape,
+    yaml_escape,
+    yaml_sanitize,
+)
 from kb.utils.wiki_log import (
     LOG_SIZE_WARNING_BYTES,
     append_wiki_log,
@@ -1562,6 +1568,16 @@ def ingest_source(
     if "\r" in source_ref or "\n" in source_ref:
         raise ValueError(
             f"Source path holds a line break (CR or LF) and cannot be ingested: {source_ref!r}"
+        )
+    # #183: `_update_existing_page_body` writes the `source:` entry through
+    # `yaml_escape`, whose `yaml_sanitize` deletes controls, NEL, U+2028/U+2029, the
+    # BOM and bidi marks, so the entry would name another file. Runs after the CR/LF
+    # check, so `yaml_sanitize` never sees a CR.
+    if yaml_sanitize(source_ref) != source_ref:
+        raise ValueError(
+            "Source path holds a character the wiki frontmatter cannot keep (a control "
+            "character, line or paragraph separator, BOM or bidi mark) and cannot be "
+            f"ingested: {source_ref!r}"
         )
     # Cycle 19 AC12/AC13 — derive manifest_ref ONCE; thread to BOTH the Phase-1
     # reservation AND the Phase-2 confirmation. source_ref is unchanged for

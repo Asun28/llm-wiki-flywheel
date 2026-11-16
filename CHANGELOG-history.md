@@ -17,6 +17,17 @@ Purpose: Full per-cycle bullet-level detail archive. CHANGELOG.md is the compact
 
 > Detailed per-cycle entries live here. High-level summaries remain in [CHANGELOG.md](CHANGELOG.md); full bullet-level detail belongs here.
 
+### 2026-11-17 — T0-KBFIX-STRIPREF (ingest refuses a source reference holding a character the frontmatter writer deletes, #183)
+
+**Card:** T0-KBFIX-STRIPREF (goal g-20261116210115-0f0530, T0-bugfix). Follow-up filed by T0-KBFIX-CRREF.
+
+**Theme:** `_update_existing_page_body` writes a page's new `source:` entry as `yaml_escape(source_ref)`, and `yaml_escape` first runs `yaml_sanitize`, which deletes C0/C1 controls other than TAB, LF and CR, DEL, NEL, U+2028, U+2029, the BOM and bidi marks. Reproduced on main 75c08b4 with real files on Windows (NEL, U+2028, U+202E, BOM, DEL): the summary page the first ingest creates keeps `raw/articles/b<c>.md`, because `_write_wiki_page` uses `frontmatter.dumps`, which escapes these characters; the entity page a second source updates records `raw/articles/b.md`, a different file. #183 also said the new-page writer loses the character; that part does not reproduce. Owner policy from #179: refuse at ingest.
+
+- **`src/kb/ingest/pipeline.py`.** `ingest_source` raises `ValueError("Source path holds a character the wiki frontmatter cannot keep (...) and cannot be ingested: <repr>")` when `yaml_sanitize(source_ref) != source_ref`, right after the #179 CR/LF check, so `yaml_sanitize` never sees a CR, and before any write. Using `yaml_sanitize` itself as the predicate keeps the refusal in step with the set the update writer deletes. `yaml_sanitize` is now imported alongside `yaml_escape`.
+- **Tests.** `tests/test_kbfix_source_ref_stripped_chars.py` (new, 12 tests, real files only, every ingest inside `tmp_kb_env`): DEL, NEL, U+2028, U+2029, BOM, RLO and LRI (every platform) and U+0001, VT and U+001F (POSIX only) are refused with a `ValueError` matching `frontmatter cannot keep` whose message holds the reference's `repr` and is unchanged by `yaml_sanitize`, and a snapshot of every sandbox file is unchanged; controls: after `a.md` creates `entities/bread.md`, `café.md` (every platform) and `b<TAB>.md` (POSIX only) ingest and the entity page's `source:` list holds the reference unchanged. RED at 0e3dde0: 7 failed (DID NOT RAISE), the `café` control passed, 4 skipped on Windows.
+- **Not changed:** `yaml_escape` / `yaml_sanitize`, `_update_existing_page_body`, `_write_wiki_page`, `make_source_ref`. `kb_create_page` (`mcp/quality.py:547`) still writes its `source_refs` entries through `yaml_escape`, so an existing raw file holding such a character is cited without it (follow-up issue).
+- **Tests:** 3955 → 3967 (+12).
+
 ### 2026-11-17 — T0-KBFIX-CRREF (ingest refuses a source reference holding CR or LF, #179)
 
 **Card:** T0-KBFIX-CRREF (goal g-20261116093737-8cffcf, T0-bugfix).
