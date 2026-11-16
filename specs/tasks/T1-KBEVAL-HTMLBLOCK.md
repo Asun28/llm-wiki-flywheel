@@ -84,3 +84,40 @@ DoD (`ruff check bench/knowledge && python -m pytest bench/knowledge/tests/test_
 | 6 | Report lines 23 and 222 carry the note dated `2026-11-16` with the card id; module docstring of `trace.py` names HTML blocks; numstat of `summary.json` and `labels.jsonl` is empty; one entry each in `CHANGELOG.md` and `CHANGELOG-history.md`. |
 
 Differential (self-check, not DoD; script `diff_html.py` in the session scratchpad, not the repo): `classify_lines` against markdown-it-py 4.0 (`commonmark` + `table`) on random documents of HTML, fence, heading, table and container lines. markdown-it-py's type 4 accepts only uppercase letters and its type 7 does not exclude `pre`, `script`, `style`, `textarea`; the run patched both to the spec text. Mismatches per 20,000 documents: seeds 1-3 give 19, 18, 22 at HEAD against 3883, 3949, 3935 for the base probe; seeds 4-5 with a larger vocabulary give 8 and 12. Every remaining mismatch was traced to one of three markdown-it-py behaviours outside CommonMark, each present with the base probe too: its table rule runs before list items (`- a | b` then a delimiter is a table), it accepts a `>` continuation marker indented 4 columns, and it reads a lazy line indented 4 columns inside a nested block quote as indented code.
+
+### Attempt 2
+
+Repair of R3 decision 1 on ecc1096 (`.review/T1-KBEVAL-HTMLBLOCK.r3.1.b19ef8d0.json`, block): F1 `html-closing-tag-exclusion`, F2 `html-trail-removal`. No card amendment.
+
+Commits: 5e00473 (RED tests), 1bd51ff (fix), 59daca5 (changelog wording), and the commit adding this section.
+
+- F1: the type 7 pattern leaves out only an OPEN tag named `pre`, `script`, `style` or `textarea` (`<pre/>` is no block); a closing tag of those names alone on its line starts a type 7 block, as in cmark and commonmark.js.
+- F2: `classify_lines` records the lines of each HTML block (the start line, content lines and an explicit end line; not the blank line that ends type 6 or 7), and the Evidence Trail pass starts a trail only at a `## Evidence Trail` line outside them.
+
+RED at 5e00473 (`python -m pytest bench/knowledge/tests/test_trace.py -q` against ecc1096's probe): exit 1, 7 failed, 116 passed. Failing: `test_closing_tag_of_a_type_1_name_alone_on_its_line_starts_a_type_7_block[</pre>, </script>, </style>, </textarea>]`, each `['</pre>', 'Fenced line after the block is excluded.'] != ['</pre>\n```', 'After the block ends here.']` (tag varies); `test_evidence_trail_line_inside_an_html_block_starts_no_trail[type-6-ends-at-blank-line, type-1-explicit-end, type-2-explicit-end]`, each with only the start line surviving, e.g. `['<div>'] != ['<div>\n## Evidence Trail\nHTML prose sentence has enough words.', 'Later prose sentence has enough words to count.']`. Output sha256 e4862b1df6ccf4b716adee5b67e3e2233926574c20305affe2ad54ea0a5c0131.
+
+DoD (card command, main checkout `.venv`): exit 0; `All checks passed!`, `154 passed`. Output sha256 b63c5146295866328a257eed9066d954a6be8807bc72eecde03291d671ab9e74.
+
+`python -m pytest bench/knowledge/tests -q`: 395 passed, 4 skipped.
+
+`git diff --numstat origin/main...HEAD` before this section:
+
+```
+10	0	CHANGELOG-history.md
+1	0	CHANGELOG.md
+93	8	bench/knowledge/probes/trace.py
+147	0	bench/knowledge/tests/test_trace.py
+2	2	docs/knowledge-baseline.md
+33	0	specs/tasks/T1-KBEVAL-HTMLBLOCK.md
+```
+
+| Acceptance | Evidence |
+|---|---|
+| 1 | Example 161 tests unchanged and passing. |
+| 2 | 7 type cases unchanged and passing; new `test_closing_tag_of_a_type_1_name_alone_on_its_line_starts_a_type_7_block` (4 cases, F1). |
+| 3 | Unchanged and passing. |
+| 4 | Unchanged and passing. |
+| 5 | DoD green; `git diff origin/main...HEAD -- bench/knowledge/tests/test_trace.py` removes 0 lines; the number scan passes. New `test_evidence_trail_line_inside_an_html_block_starts_no_trail` (3 cases, F2). |
+| 6 | Unchanged from attempt 1; `summary.json` and `labels.jsonl` numstat empty; changelog entries reworded in place (still one each). |
+
+Differential rerun, reference patched to leave out only open tags of the four names: seeds 1-3 give 19, 17, 20 mismatches per 20,000 documents at HEAD against 309, 331, 313 for ecc1096's probe under the same reference; seeds 4-5 (larger vocabulary) give 7 and 12. Every remaining mismatch falls in the three markdown-it-py classes named in attempt 1. The differential does not exercise F2: markdown-it-py has no Evidence Trail rule.
