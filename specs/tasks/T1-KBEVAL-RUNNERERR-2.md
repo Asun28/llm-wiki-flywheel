@@ -59,3 +59,35 @@ ruff check bench/knowledge && python -m pytest bench/knowledge/tests/test_runner
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+
+### Attempt 1 (implementer, 2026-11-16)
+- Origin: T1-KBEVAL-RUNNERERR candidate `976e0ab` (its attempt 1 evidence stays in `specs/tasks/T1-KBEVAL-RUNNERERR.md`), merge of origin/main `efd3f35`. Commits: ef6e423 (RED tests), 880a6af (runner), 5143902 (README, changelogs), then this evidence commit.
+- Environment: Windows 11, Python 3.13.13, main checkout `.venv` (CI: Python 3.12, ubuntu-latest).
+- Findings repaired: P1 `protected-input-test-deletion` (the checkout overlap test now runs in-process with `runner.CHECKOUT` pointed at `<tmp>/checkout` and `runner.git_state` fixed at the git boundary; the cleanup that targeted the real checkout and the `shutil` import are removed); P2 `unguarded-directory-preflight` at `run.py:328` and `run.py:350` (new `stat_mode`, `resolved`, `prepare_out` raise `UsageError`; `run_all` reports it and exits 2).
+- Same class, checked: the `--wiki` / `--raw` `is_dir` checks (same loop as `--probes-dir`, fixed and tested); `resolve()` of `--wiki`, `--raw`, `--out` and of the checkout's `wiki/`, `raw/`, `.data/` for the overlap check (raised at `run.py:331`; fixed, the three option cases tested). Found and NOT changed, outside R1/R6/R7: after the preflight, `(CHECKOUT / "templates").is_dir()` + `shutil.copytree` and `tempfile.mkdtemp` can still raise out of `main()` with a traceback; they concern the checkout's `templates/` and the system temp directory, not an option path.
+- RED (ef6e423 tests against the `976e0ab` runner): `python -m pytest bench/knowledge/tests/test_runner.py -q -rfs --tb=line` exit 1, `7 failed, 62 passed, 5 skipped` (output sha256 5942b678...). Each failure is `PermissionError` escaping `main()` from the preflight: `run.py:328` (`is_dir`) for `test_probes_directory_that_cannot_be_inspected_exits_2` and `test_input_directory_that_cannot_be_inspected_exits_2[--wiki,--raw]`; `run.py:331` (`resolve`) for `test_option_path_that_cannot_be_resolved_exits_2[--wiki,--raw,--out]`; `run.py:350` (`exists`) for `test_out_that_cannot_be_inspected_exits_2`. The six rewritten `test_out_inside_a_checkout_input_directory_exits_2_and_is_not_created[<dir>-present|absent]` cases passed at RED: the `976e0ab` runner already had the R7 check, the change there is test isolation (P1), and with `git_state` fixed a runner without the check would reach `mkdir` and run the marker probe, so the case still discriminates.
+- DoD (exact command, worktree root, main checkout `.venv` first on PATH): `ruff check bench/knowledge && python -m pytest bench/knowledge/tests/test_runner.py -q` exit 0, output sha256 69938b9d...:
+  ```
+  All checks passed!
+  ...........................ssss......................................... [ 97%]
+  s.                                                                       [100%]
+  69 passed, 5 skipped in 21.11s
+  ```
+- Bench tests: `python -m pytest bench/knowledge/tests -q` exit 0, `423 passed, 5 skipped`. `ruff format --check bench/knowledge`: 18 files already formatted.
+- Runner smoke: `python bench/knowledge/run.py --out <scratchpad>/smoke-runnererr2` (outside the repo) exit 0; seven records plus `trace-sample.jsonl`; no guard line. The worktree's `wiki/`, `raw/` and `.data/` did not exist before or after any run, RED included.
+- `git diff --numstat 976e0ab..5143902` (this card): `CHANGELOG-history.md` 5/3, `CHANGELOG.md` 1/1, `bench/knowledge/README.md` 1/1, `bench/knowledge/run.py` 70/36, `bench/knowledge/tests/test_runner.py` 104/15.
+- `git diff --numstat origin/main...5143902` (whole branch): `CHANGELOG-history.md` 12/0, `CHANGELOG.md` 1/0, `bench/knowledge/README.md` 5/3, `bench/knowledge/run.py` 177/32, `bench/knowledge/tests/test_runner.py` 454/1, `specs/tasks/T1-KBEVAL-RUNNERERR.md` 46/0. Non-test lines 230; test lines 455.
+- Skips (5, all `require_link_kind`: "symlink creation needs a privilege this Windows account lacks", WinError 1314): four existing `test_adding_or_removing_a_link_under_wiki_fails_the_run` symlink cases and `test_out_reaching_wiki_through_a_link_exits_2[dir_symlink]`. The junction case ran and passed. The closed-pipe tests ran (Windows raises `OSError(22)` on a write to a closed pipe).
+
+| # | Requirement | Test(s) in `test_runner.py` | Result |
+|---|---|---|---|
+| 1 | R1 | `test_unlistable_probes_directory_exits_2_naming_it`, `test_empty_readable_probes_directory_exits_0_with_no_output`, `test_probes_directory_that_cannot_be_inspected_exits_2` (new: `os.stat` raising) | pass |
+| 2 | R2 | `test_stale_records_of_selected_probes_are_gone_before_the_first_probe`, `test_stale_record_that_cannot_be_removed_exits_1_before_any_probe` | pass |
+| 3 | R3 | `test_failed_probe_leaves_no_read_only_record_of_its_own`, `test_failed_probe_record_that_cannot_be_removed_is_named_on_stderr` | pass |
+| 4 | R4, R5 | three `test_closed_output_pipe_*` (real subprocess, one shared pipe closed before the run), `test_unwritable_diagnostic_stops_neither_later_probes_nor_the_guard` | pass |
+| 5 | R6 | `test_out_naming_an_existing_file_exits_2`, `test_out_that_cannot_be_created_exits_2`, `test_out_that_cannot_be_inspected_exits_2` (new: `os.stat` raising before `mkdir`) | pass |
+| 6 | R7 | `test_out_equal_to_wiki_exits_2_naming_both`, `test_out_inside_raw_exits_2_and_is_not_created`, `test_out_inside_a_checkout_input_directory_exits_2_and_is_not_created[wiki,raw,.data x present,absent]` (temporary checkout), `test_out_reaching_wiki_through_a_link_exits_2[dir_symlink,junction]` | pass (dir_symlink skipped here) |
+| 7 | existing tests, docs | 45 earlier cases pass unedited; README exit code 2 adds `cannot inspect` / `cannot resolve`; the T1-KBEVAL-RUNNERERR entries in `CHANGELOG.md` and `CHANGELOG-history.md` name this successor | pass (reviewer-verified item) |
+| - | same class | `test_input_directory_that_cannot_be_inspected_exits_2[--wiki,--raw]`, `test_option_path_that_cannot_be_resolved_exits_2[--wiki,--raw,--out]` | pass |
