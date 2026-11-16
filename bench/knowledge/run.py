@@ -4,7 +4,9 @@ Usage: python bench/knowledge/run.py [--probe NAME ...] [--probes-dir DIR]
        [--out DIR] [--wiki DIR] [--raw DIR]
 
 Exit codes: 0 every probe returned a valid result and no guarded directory
-changed; 1 a probe failed or a guarded directory changed; 2 usage error.
+changed; 1 a probe failed, a record could not be removed or a guarded directory
+changed; 2 usage error (an unlistable probes directory and an `--out` that cannot
+be created or lies inside an input directory included).
 See bench/knowledge/README.md for the record shape and the probe entry.
 """
 
@@ -16,6 +18,7 @@ import json
 import math
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -62,11 +65,18 @@ def find_probes(probes_dir: Path, wanted: list[str]) -> list[Path]:
     """Return the probe files to run, in file-name order; raise ValueError on an unknown name.
 
     A probe is a regular file (or a link to one) named `*.py` not starting with `_`;
-    a directory named `*.py` is not a probe.
+    a directory named `*.py` is not a probe. A directory that cannot be listed raises
+    OSError (`Path.glob` would read it as empty).
     """
-    found = {
-        p.stem: p for p in probes_dir.glob("*.py") if p.is_file() and not p.name.startswith("_")
-    }
+    with os.scandir(probes_dir) as entries:
+        paths = [
+            Path(entry.path)
+            for entry in entries
+            if os.path.normcase(entry.name).endswith(".py")
+            and not entry.name.startswith("_")
+            and entry.is_file()
+        ]
+    found = {p.stem: p for p in paths}
     unknown = sorted(set(wanted) - set(found))
     if unknown:
         raise ValueError(f"--probe names no file in {probes_dir}: {', '.join(unknown)}")
@@ -117,7 +127,7 @@ def guarded_listing(directories: list[Path]) -> dict[str, tuple[int, int]] | Non
         return listing(directories)
     except OSError as exc:
         where = exc.filename or ", ".join(str(d) for d in directories)
-        say(f"cannot list guarded directory: {where}: {exc.strerror or exc}", sys.stderr)
+        warn(f"cannot list guarded directory: {where}: {exc.strerror or exc}")
         return None
 
 
@@ -190,18 +200,89 @@ def say(text: str, stream) -> None:
     stream.flush()
 
 
+def warn(text: str) -> None:
+    """Write one diagnostic line to stderr; a stderr that cannot take it does not stop the run.
+
+    The caller records the failure the line reports before calling, so the exit code
+    holds even when nothing can be written.
+    """
+    try:
+        say(text, sys.stderr)
+    except (AttributeError, OSError, ValueError):
+        pass  # no stream left to report on
+
+
 def write_record(path: Path, record: dict) -> None:
     """Encode the whole record before writing, so an unencodable string writes nothing."""
     text = json.dumps(record, sort_keys=True, indent=2, ensure_ascii=False, allow_nan=False)
     path.write_bytes((text + "\n").encode("utf-8"))
 
 
-def discard_record(path: Path) -> None:
-    """Remove a record a failed probe may have left; a path that cannot be removed is not one."""
+def remove_record(path: Path) -> str | None:
+    """Remove `path`, a read-only file included; return the cause if it is still there.
+
+    The read-only file attribute (Windows) makes unlink fail, so it is cleared and the
+    unlink retried; a directory or link at the path is left as it is.
+    """
     try:
         path.unlink(missing_ok=True)
-    except OSError:
-        pass
+        return None
+    except OSError as exc:
+        error = exc
+    try:
+        mode = os.lstat(path).st_mode
+        if stat.S_ISREG(mode) and not mode & stat.S_IWRITE:
+            os.chmod(path, stat.S_IMODE(mode) | stat.S_IWRITE)
+            path.unlink()
+            return None
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        error = exc
+    return error.strerror or str(error)
+
+
+def overlap(args: argparse.Namespace, out: Path) -> str | None:
+    """Name the input directory the resolved `out` equals or lies inside, or return None."""
+    inputs = [
+        ("--wiki", args.wiki),
+        ("--raw", args.raw),
+        ("the checkout's wiki/", CHECKOUT / "wiki"),
+        ("the checkout's raw/", CHECKOUT / "raw"),
+        ("the checkout's .data/", CHECKOUT / ".data"),
+    ]
+    for label, given in inputs:
+        target = given.resolve()
+        if out == target or out.is_relative_to(target):
+            relation = "is" if out == target else "lies inside"
+            return f"--out {shown(args.out, out)} {relation} {label} {shown(given, target)}"
+    return None
+
+
+def shown(given: Path, resolved: Path) -> str:
+    return str(given) if given == resolved else f"{given} (resolves to {resolved})"
+
+
+def release_broken_streams() -> None:
+    """Point the descriptor of a stdout or stderr that cannot be flushed at the null device.
+
+    Otherwise interpreter shutdown flushes into the closed pipe again and exits 120
+    instead of the run's exit code.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.flush()
+            continue
+        except (AttributeError, OSError, ValueError):
+            pass
+        try:
+            null = os.open(os.devnull, os.O_WRONLY)
+            try:
+                os.dup2(null, stream.fileno())
+            finally:
+                os.close(null)
+        except (AttributeError, OSError, ValueError):
+            pass  # not backed by a descriptor; nothing to redirect
 
 
 def summary_lines(probe: str, arms: dict) -> list[str]:
@@ -230,7 +311,11 @@ def main(argv: list[str] | None = None) -> int:
         return run_all(argv)
     finally:
         for stream, errors in reversed(restore):
-            stream.reconfigure(errors=errors)
+            try:
+                stream.reconfigure(errors=errors)
+            except (OSError, ValueError):
+                pass  # reconfigure flushes; a broken stream is released below
+        release_broken_streams()
 
 
 def run_all(argv: list[str] | None) -> int:
@@ -241,18 +326,44 @@ def run_all(argv: list[str] | None) -> int:
         ("--probes-dir", args.probes_dir),
     ):
         if not path.is_dir():
-            say(f"{option} is not a directory: {path}", sys.stderr)
+            warn(f"{option} is not a directory: {path}")
             return 2
+    wiki, raw, out = args.wiki.resolve(), args.raw.resolve(), args.out.resolve()
+    # Before any directory is made: a probe writing to ctx.out must not write an input.
+    inside = overlap(args, out)
+    if inside:
+        warn(inside)
+        return 2
     try:
         probes = find_probes(args.probes_dir, args.probe)
-        commit, dirty = git_state()
-    except (ValueError, OSError, subprocess.CalledProcessError) as exc:
-        say(str(exc), sys.stderr)
+    except OSError as exc:
+        warn(f"cannot list --probes-dir: {args.probes_dir}: {exc.strerror or exc}")
         return 2
-
-    wiki, raw, out = args.wiki.resolve(), args.raw.resolve(), args.out.resolve()
+    except ValueError as exc:
+        warn(str(exc))
+        return 2
+    try:
+        commit, dirty = git_state()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        warn(str(exc))
+        return 2
+    if out.exists() and not out.is_dir():
+        warn(f"--out is not a directory: {args.out}")
+        return 2
+    try:
+        out.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        where = f" ({exc.filename})" if exc.filename else ""
+        warn(f"--out cannot be created: {args.out}: {exc.strerror or exc}{where}")
+        return 2
+    # A record left by an earlier run must not stand in for this one.
+    stale = [(path, remove_record(path)) for path in (out / f"{p.stem}.json" for p in probes)]
+    stale = [(path, cause) for path, cause in stale if cause]
+    for path, cause in stale:
+        warn(f"cannot remove record from an earlier run: {path}: {cause}")
+    if stale:
+        return 1
     guarded = [CHECKOUT / "wiki", CHECKOUT / "raw", CHECKOUT / ".data", wiki, raw]
-    out.mkdir(parents=True, exist_ok=True)
 
     # kb.config binds its paths when first imported, so the temporary root must
     # be in the environment before any probe imports kb.
@@ -272,8 +383,6 @@ def run_all(argv: list[str] | None) -> int:
             tmp = Path(tempfile.mkdtemp(prefix=f"kbeval-{probe}-"))
             ctx = Context(tmp=tmp, data=BENCH / "data" / probe, wiki=wiki, raw=raw, out=out)
             try:
-                # A record left by an earlier run must not stand in for this one.
-                record_path.unlink(missing_ok=True)
                 invariants, arms = run_probe(path, ctx)
                 record = {
                     "probe": probe,
@@ -290,10 +399,12 @@ def run_all(argv: list[str] | None) -> int:
             except KeyboardInterrupt:
                 raise
             except BaseException as exc:  # any other exception, sys.exit included
-                discard_record(record_path)
+                exit_code = 1  # first: a diagnostic that cannot be written must not lose it
+                left = remove_record(record_path)
                 cause = "".join(traceback.format_exception_only(exc)).strip()
-                say(f"{probe} failed: {cause}", sys.stderr)
-                exit_code = 1
+                warn(f"{probe} failed: {cause}")
+                if left:
+                    warn(f"cannot remove record of failed probe: {record_path}: {left}")
             finally:
                 shutil.rmtree(tmp, ignore_errors=True)
         after = guarded_listing(guarded)
@@ -308,8 +419,8 @@ def run_all(argv: list[str] | None) -> int:
         return 1
     for path in sorted(set(before) | set(after)):
         if before.get(path) != after.get(path):
-            say(f"guarded directory changed: {path}", sys.stderr)
             exit_code = 1
+            warn(f"guarded directory changed: {path}")
     return exit_code
 
 
