@@ -252,15 +252,53 @@ def overlap(args: argparse.Namespace, out: Path) -> str | None:
         ("the checkout's .data/", CHECKOUT / ".data"),
     ]
     for label, given in inputs:
-        target = given.resolve()
+        target = resolved(label, given)
         if out == target or out.is_relative_to(target):
             relation = "is" if out == target else "lies inside"
             return f"--out {shown(args.out, out)} {relation} {label} {shown(given, target)}"
     return None
 
 
-def shown(given: Path, resolved: Path) -> str:
-    return str(given) if given == resolved else f"{given} (resolves to {resolved})"
+def shown(given: Path, target: Path) -> str:
+    return str(given) if given == target else f"{given} (resolves to {target})"
+
+
+class UsageError(Exception):
+    """A usage error; the message names the path and the cause, and the run exits 2."""
+
+
+def stat_mode(label: str, path: Path) -> int | None:
+    """Return the st_mode of `path`, or None when nothing is there.
+
+    Any other error (permission denied on a parent, a link loop) is a UsageError, not
+    a traceback and not "missing".
+    """
+    try:
+        return os.stat(path).st_mode
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    except OSError as exc:
+        raise UsageError(f"cannot inspect {label}: {path}: {exc.strerror or exc}") from exc
+
+
+def resolved(label: str, path: Path) -> Path:
+    try:
+        return path.resolve()
+    except (OSError, RuntimeError) as exc:  # RuntimeError: a link loop on Python 3.12
+        cause = getattr(exc, "strerror", None) or exc
+        raise UsageError(f"cannot resolve {label}: {path}: {cause}") from exc
+
+
+def prepare_out(given: Path, out: Path) -> None:
+    """Make sure `out` is a directory, creating it if nothing is there; raise UsageError."""
+    mode = stat_mode("--out", given)
+    if mode is not None and not stat.S_ISDIR(mode):
+        raise UsageError(f"--out is not a directory: {given}")
+    try:
+        out.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        where = f" ({exc.filename})" if exc.filename else ""
+        raise UsageError(f"--out cannot be created: {given}: {exc.strerror or exc}{where}") from exc
 
 
 def release_broken_streams() -> None:
@@ -320,41 +358,37 @@ def main(argv: list[str] | None = None) -> int:
 
 def run_all(argv: list[str] | None) -> int:
     args = parse_args(argv)
-    for option, path in (
-        ("--wiki", args.wiki),
-        ("--raw", args.raw),
-        ("--probes-dir", args.probes_dir),
-    ):
-        if not path.is_dir():
-            warn(f"{option} is not a directory: {path}")
-            return 2
-    wiki, raw, out = args.wiki.resolve(), args.raw.resolve(), args.out.resolve()
-    # Before any directory is made: a probe writing to ctx.out must not write an input.
-    inside = overlap(args, out)
-    if inside:
-        warn(inside)
-        return 2
     try:
-        probes = find_probes(args.probes_dir, args.probe)
-    except OSError as exc:
-        warn(f"cannot list --probes-dir: {args.probes_dir}: {exc.strerror or exc}")
-        return 2
-    except ValueError as exc:
+        for option, path in (
+            ("--wiki", args.wiki),
+            ("--raw", args.raw),
+            ("--probes-dir", args.probes_dir),
+        ):
+            mode = stat_mode(option, path)
+            if mode is None or not stat.S_ISDIR(mode):
+                raise UsageError(f"{option} is not a directory: {path}")
+        wiki, raw, out = (
+            resolved(option, path)
+            for option, path in (("--wiki", args.wiki), ("--raw", args.raw), ("--out", args.out))
+        )
+        # Before any directory is made: a probe writing to ctx.out must not write an input.
+        inside = overlap(args, out)
+        if inside:
+            raise UsageError(inside)
+        try:
+            probes = find_probes(args.probes_dir, args.probe)
+        except OSError as exc:
+            cause = exc.strerror or exc
+            raise UsageError(f"cannot list --probes-dir: {args.probes_dir}: {cause}") from exc
+        except ValueError as exc:
+            raise UsageError(str(exc)) from exc
+        try:
+            commit, dirty = git_state()
+        except (OSError, subprocess.CalledProcessError) as exc:
+            raise UsageError(str(exc)) from exc
+        prepare_out(args.out, out)
+    except UsageError as exc:
         warn(str(exc))
-        return 2
-    try:
-        commit, dirty = git_state()
-    except (OSError, subprocess.CalledProcessError) as exc:
-        warn(str(exc))
-        return 2
-    if out.exists() and not out.is_dir():
-        warn(f"--out is not a directory: {args.out}")
-        return 2
-    try:
-        out.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        where = f" ({exc.filename})" if exc.filename else ""
-        warn(f"--out cannot be created: {args.out}: {exc.strerror or exc}{where}")
         return 2
     # A record left by an earlier run must not stand in for this one.
     stale = [(path, remove_record(path)) for path in (out / f"{p.stem}.json" for p in probes)]
