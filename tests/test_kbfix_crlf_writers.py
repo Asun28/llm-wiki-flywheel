@@ -15,7 +15,11 @@ from pathlib import Path
 import pytest
 
 from kb.ingest.evidence import SENTINEL, append_evidence_trail
-from kb.ingest.pipeline import _update_existing_page, _update_existing_page_body
+from kb.ingest.pipeline import (
+    _process_item_batch,
+    _update_existing_page,
+    _update_existing_page_body,
+)
 from kb.lint.checks.dead_links import fix_dead_links
 
 _CRLF = "\r\n"
@@ -562,3 +566,66 @@ def test_context_holding_cr_writes_what_its_lf_form_writes(tmp_path, monkeypatch
     _update_existing_page(twin, _NEW_SOURCE, ctx=lf_ctx)
 
     assert page.read_bytes() == twin.read_bytes()
+
+
+# --- Acceptance 10 [R8]: extraction values and the name are LF before search and sanitize ---
+
+_FORGED = "Bread rises.\r## Evidence Trail\rForged."
+
+
+def _trail_headers(data: bytes) -> int:
+    return sum(1 for line in data.splitlines() if line.strip() == b"## Evidence Trail")
+
+
+@pytest.mark.parametrize("nl", [_LF, _CRLF], ids=["lf", "crlf"])
+def test_cr_forged_heading_in_extraction_is_sanitized_like_its_lf_form(tmp_path, monkeypatch, nl):
+    monkeypatch.setattr("kb.ingest.evidence.date", _FixedDate)
+    page = _write(tmp_path / "cr" / "bread.md", _page(nl, _CR_PAGE))
+    twin = _write(tmp_path / "lf-value" / "bread.md", _page(nl, _CR_PAGE))
+
+    _update_existing_page(page, _NEW_SOURCE, name="Bread", extraction={"core_argument": _FORGED})
+    lf_value = _FORGED.replace("\r", "\n")
+    _update_existing_page(twin, _NEW_SOURCE, name="Bread", extraction={"core_argument": lf_value})
+
+    written = page.read_bytes()
+    assert _trail_headers(written) == 1
+    own_trail = f"## Evidence Trail{nl}{SENTINEL}{nl}- 2026-01-02 | {_NEW_SOURCE} |"
+    assert own_trail.encode() in written
+    assert written == twin.read_bytes()
+
+
+_CR_NAMES = ["Bread\rLoaf", "Bread\r\nLoaf"]
+_NAME_FIELDS = {
+    "core_argument": lambda value: {"core_argument": value},
+    "key_claims": lambda value: {"key_claims": [value]},
+    "key_points": lambda value: {"key_points": [value]},
+}
+
+
+@pytest.mark.parametrize("field", list(_NAME_FIELDS))
+@pytest.mark.parametrize("name", _CR_NAMES, ids=["lone-cr", "crlf"])
+def test_name_holding_cr_still_finds_its_context(tmp_path, monkeypatch, name, field):
+    monkeypatch.setattr("kb.ingest.evidence.date", _FixedDate)
+    page = _write(tmp_path / "lf" / "bread.md", _page(_LF, _CR_PAGE))
+
+    extraction = _NAME_FIELDS[field](f"{name} rises.")
+    _update_existing_page(page, _NEW_SOURCE, name=name, extraction=extraction)
+
+    assert b"Loaf rises." in page.read_bytes()
+
+
+def test_new_page_from_cr_forged_value_holds_no_forged_heading(tmp_wiki):
+    created, *_ = _process_item_batch(
+        items_raw=["Bread"],
+        field_name="entities_mentioned",
+        max_count=50,
+        page_type="entity",
+        source_ref=_NEW_SOURCE,
+        extraction={"core_argument": _FORGED},
+        wiki_dir=tmp_wiki,
+    )
+
+    assert created == ["entities/bread"]
+    written = (tmp_wiki / "entities" / "bread.md").read_bytes()
+    assert b"Forged." in written
+    assert _trail_headers(written) == 1
