@@ -55,3 +55,49 @@ ruff check bench/knowledge && python -m pytest bench/knowledge/tests/test_runner
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+
+### Attempt 1 (implementer, 2026-11-16)
+- Base: `origin/main` f8e217e. Commits: 44f3aad (RED tests only), 3c6b53e (runner), a57e386 (README, changelogs), then this evidence commit.
+- Environment: Windows 11, Python 3.13.13, main checkout `.venv` (CI runs Python 3.12 on ubuntu-latest).
+- RED (44f3aad tests against the unchanged runner): `python -m pytest bench/knowledge/tests/test_runner.py -q -rfs --tb=line` exit 1, `17 failed, 42 passed, 5 skipped` (output sha256 afba92da...). Each new test failed on its behaviour:
+  - `test_unlistable_probes_directory_exits_2_naming_it`: exit 0 with empty stderr (`Path.glob` read the denied directory as empty).
+  - `test_stale_records_of_selected_probes_are_gone_before_the_first_probe`: `a_looker failed: PermissionError: [WinError 5]` on its read-only stale record; exit 1.
+  - `test_stale_record_that_cannot_be_removed_exits_1_before_any_probe`: probe `a` ran before `b.json` was tried (marker present).
+  - `test_failed_probe_leaves_no_read_only_record_of_its_own`: the read-only record survived (`assert not True`).
+  - `test_failed_probe_record_that_cannot_be_removed_is_named_on_stderr`: no stderr line names `a.json`.
+  - three `test_closed_output_pipe_*`: `assert 120 == 1`.
+  - `test_unwritable_diagnostic_stops_neither_later_probes_nor_the_guard`: `BrokenPipeError` escaped `main()` from the failure diagnostic.
+  - `test_out_naming_an_existing_file_exits_2`: exit 1 with a `FileExistsError` traceback.
+  - `test_out_that_cannot_be_created_exits_2`: `PermissionError` escaped `main()` from `out.mkdir`.
+  - `test_out_equal_to_wiki_exits_2_naming_both`, `test_out_inside_raw_exits_2_and_is_not_created`, the three `test_out_inside_a_checkout_input_directory_*` cases and `test_out_reaching_wiki_through_a_link_exits_2[junction]`: exit 1 with `guarded directory changed: <input>/.../a.json`, so the probe had written into the input directory. The checkout cases removed the directories the old runner created; `wiki/`, `raw/` and `.data/` did not exist in the worktree before or after.
+  - `test_empty_readable_probes_directory_exits_0_with_no_output` passed (control: current behaviour kept).
+- DoD (exact command, worktree root, main checkout `.venv` first on PATH): `ruff check bench/knowledge && python -m pytest bench/knowledge/tests/test_runner.py -q` exit 0, output sha256 329672cd...:
+  ```
+  All checks passed!
+  ...........................ssss...............................s.         [100%]
+  59 passed, 5 skipped in 13.31s
+  ```
+- Bench tests: `python -m pytest bench/knowledge/tests -q` exit 0, `413 passed, 5 skipped`. `ruff format --check bench/knowledge`: 18 files already formatted.
+- Runner smoke: `python bench/knowledge/run.py --out <scratchpad>/smoke-a57e386` (outside the repo) exit 0; seven records (`citations`, `contradiction`, `linker`, `provenance`, `rebuild`, `retrieval`, `trace`) plus `trace-sample.jsonl`; no guard line.
+- `git diff --numstat origin/main...a57e386`:
+  ```
+  10   0   CHANGELOG-history.md
+  1    0   CHANGELOG.md
+  5    3   bench/knowledge/README.md
+  134  23  bench/knowledge/run.py
+  365  1   bench/knowledge/tests/test_runner.py
+  ```
+  Non-test lines 176; test lines 366; total 542 against `budget: 450`. Over the budget by the test file; no existing test edited.
+- Skips (5, all `require_link_kind`: "symlink creation needs a privilege this Windows account lacks", WinError 1314): four existing `test_adding_or_removing_a_link_under_wiki_fails_the_run` symlink cases and the new `test_out_reaching_wiki_through_a_link_exits_2[dir_symlink]`. The junction case of the new test ran and passed. The closed-pipe tests ran on Windows (a write to a closed pipe raises `OSError(22)` there); they skip only where a write to a closed pipe raises nothing.
+
+| # | Requirement | Test(s) in `test_runner.py` | Result |
+|---|---|---|---|
+| 1 | R1 | `test_unlistable_probes_directory_exits_2_naming_it`, `test_empty_readable_probes_directory_exits_0_with_no_output` | pass |
+| 2 | R2 | `test_stale_records_of_selected_probes_are_gone_before_the_first_probe` (read-only, observed absent by the first probe, unselected kept), `test_stale_record_that_cannot_be_removed_exits_1_before_any_probe` | pass |
+| 3 | R3 | `test_failed_probe_leaves_no_read_only_record_of_its_own`, `test_failed_probe_record_that_cannot_be_removed_is_named_on_stderr` | pass |
+| 4 | R4, R5 | `test_closed_output_pipe_keeps_later_probes_and_exit_code_1`, `test_closed_output_pipe_with_a_guard_change_exits_1_not_120`, `test_closed_output_pipe_with_summary_lines_exits_1_not_120` (real subprocess, stdout and stderr on one pipe closed before the run), `test_unwritable_diagnostic_stops_neither_later_probes_nor_the_guard` (in-process: the guard line is still attempted) | pass |
+| 5 | R6 | `test_out_naming_an_existing_file_exits_2`, `test_out_that_cannot_be_created_exits_2` | pass |
+| 6 | R7 | `test_out_equal_to_wiki_exits_2_naming_both`, `test_out_inside_raw_exits_2_and_is_not_created`, `test_out_inside_a_checkout_input_directory_exits_2_and_is_not_created[wiki,raw,.data]`, `test_out_reaching_wiki_through_a_link_exits_2[dir_symlink,junction]` | pass (dir_symlink skipped on this account, see above) |
+| 7 | existing tests, docs | all 45 earlier cases pass unedited; README exit codes 1 and 2 plus the record clean-up paragraph; one entry each in `CHANGELOG.md` [Unreleased] and `CHANGELOG-history.md` | pass (reviewer-verified item) |
