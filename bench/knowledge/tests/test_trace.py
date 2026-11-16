@@ -1239,3 +1239,41 @@ def test_html_block_start_after_a_paragraph_and_a_table_inside_one(probe, body, 
 )
 def test_html_block_ends_with_its_container(probe, body, expected):
     assert sentence_texts(probe, body) == [expected, expected]
+
+
+# -- T1-KBEVAL-HTMLBLOCK attempt 2: R3 decision 1 findings F1 and F2 [R1] [R2] [R3] ----
+
+
+@pytest.mark.parametrize("tag", ["</pre>", "</script>", "</style>", "</textarea>"])
+def test_closing_tag_of_a_type_1_name_alone_on_its_line_starts_a_type_7_block(probe, tag):
+    # Only an open tag of these names is excluded from type 7 (cmark, commonmark.js).
+    body = f"{tag}\n```\n\n{FENCE_AFTER}"
+    expected = [f"{tag}\n```", "After the block ends here."]
+
+    assert sentence_texts(probe, body) == [expected, expected]
+
+
+HTML_PROSE = "HTML prose sentence has enough words."
+LATER = "Later prose sentence has enough words to count."
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (
+            f"<div>\n## Evidence Trail\n{HTML_PROSE}\n\n{LATER}",
+            [f"<div>\n## Evidence Trail\n{HTML_PROSE}", LATER],
+        ),
+        (
+            f"<pre>\n## Evidence Trail\n{HTML_PROSE}\n</pre>\n{LATER}",
+            [f"<pre>\n## Evidence Trail\n{HTML_PROSE}", f"</pre>\n{LATER}"],
+        ),
+        (
+            f"<!--\n## Evidence Trail\n{HTML_PROSE}\n-->\n{LATER}",
+            [f"<!--\n## Evidence Trail\n{HTML_PROSE}", f"-->\n{LATER}"],
+        ),
+    ],
+    ids=["type-6-ends-at-blank-line", "type-1-explicit-end", "type-2-explicit-end"],
+)
+def test_evidence_trail_line_inside_an_html_block_starts_no_trail(probe, body, expected):
+    assert sentence_texts(probe, body) == [expected, expected]
