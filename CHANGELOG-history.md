@@ -19,7 +19,7 @@ Purpose: Full per-cycle bullet-level detail archive. CHANGELOG.md is the compact
 
 ### 2026-11-16 — T1-KBFIX-CRLFWRITERS (page writers keep a CRLF page's line ends, #175 part 2)
 
-**Cards:** T1-KBFIX-CRLFWRITERS (attempts 1-3) and its successor T1-KBFIX-CRLFWRITERS-2, which continues the same branch and ships it: R3 had decided the predecessor's earlier candidate, so the in-scope repair of the inserted-CR finding needed a card with its own review.
+**Cards:** T1-KBFIX-CRLFWRITERS (attempts 1-3), its successor T1-KBFIX-CRLFWRITERS-2 (attempts 1-2: the F1 and R7 repairs) and T1-KBFIX-CRLFWRITERS-3, which continues the same branch and ships it. Each successor exists because R3 had decided an earlier candidate of the card before it, and the loop ships only a decided candidate, so the later in-scope repairs needed a card with its own review.
 
 **Theme:** three page writers read a page with `Path.read_text`, whose universal-newline mode turns CRLF into LF, and wrote it with `atomic_text_write` (`newline="\n"`), so every re-ingest, evidence append or `kb lint --fix` rewrote a CRLF page as LF (`wiki/` holds 124 CRLF pages). Same root cause as #168 in the linker. They now use the shared helper from T1-KBFIX-LINEENDS.
 
