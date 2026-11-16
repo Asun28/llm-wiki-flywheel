@@ -507,18 +507,21 @@ def kb_create_page(
         return f"Error: Invalid confidence '{confidence}'. Use one of: {valid}"
 
     # Build source list and validate before checking existence
-    sources = [s.strip() for s in source_refs.split(",") if s.strip()] if source_refs else []
+    entries = source_refs.split(",") if source_refs else []
+    # #185: each entry is written below as `yaml_escape(s)`, whose `yaml_sanitize`
+    # deletes controls, NEL, U+2028/U+2029, the BOM and bidi marks, so the page would
+    # cite another file. Checked on each entry as given: `strip()` removes NEL and the
+    # separators at an entry's ends (R3 F1). `!r` keeps them out of the message.
+    for entry in entries:
+        if yaml_sanitize(entry) != entry:
+            return (
+                f"Error: source_ref {entry!r} holds a character the wiki frontmatter cannot "
+                "keep (a control character, line or paragraph separator, BOM or bidi mark)."
+            )
+    sources = [s.strip() for s in entries if s.strip()]
 
     # Validate source refs — reject path traversal and absolute paths
     for src in sources:
-        # #185: each entry is written below as `yaml_escape(s)`, whose `yaml_sanitize`
-        # deletes controls, NEL, U+2028/U+2029, the BOM and bidi marks, so the page
-        # would cite another file. Checked first; `!r` keeps them out of the message.
-        if yaml_sanitize(src) != src:
-            return (
-                f"Error: source_ref {src!r} holds a character the wiki frontmatter cannot "
-                "keep (a control character, line or paragraph separator, BOM or bidi mark)."
-            )
         if ".." in src or src.startswith("/") or src.startswith("\\") or os.path.isabs(src):
             return (
                 f"Error: Invalid source_ref '{src}'. "
