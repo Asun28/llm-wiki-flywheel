@@ -7,7 +7,6 @@ import inspect
 import json
 import os
 import re
-import shutil
 import stat
 import subprocess
 import sys
@@ -966,6 +965,87 @@ def test_out_that_cannot_be_created_exits_2(bench, runner, monkeypatch, capsys):
     assert not out.exists()
 
 
+def path_call_denying(locked: Path, real):
+    """Wrap an os function taking a path first (os.stat, os.path.realpath) so it raises
+    PermissionError for `locked`, as under an unreadable POSIX parent, and passes every
+    other call, a file descriptor or keyword form included, to the real function."""
+
+    def call(*args, **kwargs):
+        path = args[0] if args else kwargs.get("path")
+        if isinstance(path, (str, bytes, os.PathLike)):
+            if os.path.normcase(os.path.abspath(os.fsdecode(path))) == os.path.normcase(
+                str(locked)
+            ):
+                raise PermissionError(errno.EACCES, "Permission denied", os.fsdecode(path))
+        return real(*args, **kwargs)
+
+    return call
+
+
+def assert_usage_error_naming(code, output, path: Path, marker: Path) -> None:
+    assert code == 2, output
+    lines = output.err.splitlines()
+    assert any(str(path) in line and "Permission denied" in line for line in lines), output
+    assert "Traceback" not in output.err
+    assert not marker.exists()
+
+
+def test_out_that_cannot_be_inspected_exits_2(bench, runner, monkeypatch, capsys):
+    """Acceptance 5: stat of --out (its exists / is_dir check) raising is a usage error."""
+    marker = marker_probe(bench, "a")
+    monkeypatch.setattr(os, "stat", path_call_denying(bench.out, os.stat))
+
+    code = runner.main(argv_for(bench))
+    output = capsys.readouterr()
+    monkeypatch.undo()
+
+    assert_usage_error_naming(code, output, bench.out, marker)
+    assert not bench.out.exists()
+
+
+def test_probes_directory_that_cannot_be_inspected_exits_2(bench, runner, monkeypatch, capsys):
+    """Acceptance 1: stat of --probes-dir (its is_dir check) raising is a usage error."""
+    marker = marker_probe(bench, "a")
+    monkeypatch.setattr(os, "stat", path_call_denying(bench.probes, os.stat))
+
+    code = runner.main(argv_for(bench))
+    output = capsys.readouterr()
+
+    assert_usage_error_naming(code, output, bench.probes, marker)
+
+
+@pytest.mark.parametrize("option", ["--wiki", "--raw"])
+def test_input_directory_that_cannot_be_inspected_exits_2(
+    bench, runner, monkeypatch, capsys, option
+):
+    """Same class as acceptance 1: the --wiki and --raw is_dir checks."""
+    marker = marker_probe(bench, "a")
+    path = bench.wiki if option == "--wiki" else bench.raw
+    monkeypatch.setattr(os, "stat", path_call_denying(path, os.stat))
+
+    code = runner.main(argv_for(bench))
+    output = capsys.readouterr()
+
+    assert_usage_error_naming(code, output, path, marker)
+    assert option in output.err
+
+
+@pytest.mark.parametrize("option", ["--wiki", "--raw", "--out"])
+def test_option_path_that_cannot_be_resolved_exits_2(bench, runner, monkeypatch, capsys, option):
+    """Same class as acceptances 5 and 6: resolving an option path for the overlap check."""
+    marker = marker_probe(bench, "a")
+    path = {"--wiki": bench.wiki, "--raw": bench.raw, "--out": bench.out}[option]
+    monkeypatch.setattr(os.path, "realpath", path_call_denying(path, os.path.realpath))
+
+    code = runner.main(argv_for(bench))
+    output = capsys.readouterr()
+    monkeypatch.undo()
+
+    assert_usage_error_naming(code, output, path, marker)
+    assert option in output.err
+    assert not bench.out.exists()
+
+
 # acceptance 6 [R7]
 
 
@@ -997,23 +1077,32 @@ def test_out_inside_raw_exits_2_and_is_not_created(bench):
     assert not (bench.raw / "sub").exists()
 
 
+@pytest.mark.parametrize("present", [True, False], ids=["present", "absent"])
 @pytest.mark.parametrize("name", ["wiki", "raw", ".data"])
-def test_out_inside_a_checkout_input_directory_exits_2_and_is_not_created(bench, name):
+def test_out_inside_a_checkout_input_directory_exits_2_and_is_not_created(
+    bench, runner, monkeypatch, capsys, name, present
+):
+    """The checkout is a temporary one: nothing under the real checkout is touched."""
     marker = marker_probe(bench, "a")
-    protected = REPO / name
-    # The top directory this test may cause to exist; it does not exist beforehand,
-    # so removing it afterwards removes nothing the checkout already held.
-    top = protected / f"kbeval-runnererr-{os.getpid()}" if protected.exists() else protected
-    out = top / "nested" / "out"
-    assert not top.exists()
-    try:
-        proc = bench.run(out=out)
+    checkout = bench.root / "checkout"
+    protected = checkout / name
+    if present:
+        protected.mkdir(parents=True)
+    out = protected / "nested" / "out"
+    monkeypatch.setattr(runner, "CHECKOUT", checkout)
+    # git is the system boundary; a fixed state lets a runner without the check reach mkdir.
+    monkeypatch.setattr(runner, "git_state", lambda: ("0" * 40, False))
 
-        assert_overlap_refused(proc, out, protected, marker)
-        assert not top.exists()
-    finally:
-        if top.exists():  # only a runner that ignored the overlap made it
-            shutil.rmtree(top)
+    code = runner.main(argv_for(bench, out))
+    output = capsys.readouterr()
+
+    assert code == 2, output
+    lines = output.err.splitlines()
+    assert any(str(out) in line and str(protected) in line for line in lines), output
+    assert "Traceback" not in output.err
+    assert not marker.exists()
+    assert not (protected / "nested").exists()
+    assert protected.exists() == present
 
 
 @pytest.mark.parametrize("kind", ["dir_symlink", "junction"])
