@@ -5,6 +5,7 @@ from pathlib import Path
 
 from kb.compile.linker import _mask_code_blocks, _unmask_code_blocks
 from kb.lint import checks
+from kb.utils.line_ends import read_page_text, restore_line_ends
 
 
 def check_dead_links(wiki_dir: Path | None = None) -> list[dict]:
@@ -77,9 +78,10 @@ def fix_dead_links(
         if not page_path.exists():
             continue
 
-        content = page_path.read_text(encoding="utf-8")
+        # #175: edit the LF text; the page's own line ends go back at the write.
+        original, line_ends = read_page_text(page_path)
         # Mask code blocks to prevent modifying wikilinks inside code examples
-        content, masked_code, mask_prefix = _mask_code_blocks(content)
+        content, masked_code, mask_prefix = _mask_code_blocks(original)
         modified = False
 
         for target in targets:
@@ -112,7 +114,7 @@ def fix_dead_links(
         # Unmask code blocks before writing
         content = _unmask_code_blocks(content, masked_code, mask_prefix)
         if modified:
-            checks.atomic_text_write(content, page_path)
+            checks.atomic_text_write(restore_line_ends(content, original, line_ends), page_path)
 
     # Log fixes to audit trail
     if fixes:

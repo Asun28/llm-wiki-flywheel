@@ -6,6 +6,7 @@ from datetime import date
 from pathlib import Path
 
 from kb.utils.io import atomic_text_write
+from kb.utils.line_ends import read_page_text, restore_line_ends
 from kb.utils.page_lock import page_lock
 
 logger = logging.getLogger(__name__)
@@ -197,7 +198,10 @@ def append_evidence_trail(
     # body write and this provenance append share ONE held lock instead of the
     # release-then-reacquire window cycle 24 had to document.
     with page_lock(page_path):
-        content = page_path.read_text(encoding="utf-8")
+        # #175: match on the LF text; `restore_line_ends` puts the page's own line
+        # ends back at the write.
+        content, line_ends = read_page_text(page_path)
+        original = content
         d = entry_date or date.today().isoformat()
         entry = format_evidence_entry(d, source_ref, action)
 
@@ -247,4 +251,8 @@ def append_evidence_trail(
                 content.rstrip("\n") + "\n\n## Evidence Trail\n" + SENTINEL + "\n" + entry + "\n"
             )
 
-        atomic_text_write(content, page_path)
+        if "\r\n" in line_ends:
+            # #175 R5: the read text holds no CR, so any CR here came in with the
+            # entry; turn it into LF so the restore gives one CRLF per line.
+            content = content.replace("\r\n", "\n").replace("\r", "\n")
+        atomic_text_write(restore_line_ends(content, original, line_ends), page_path)

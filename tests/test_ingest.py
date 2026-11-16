@@ -1448,13 +1448,13 @@ class TestUpdateExistingPageSingleRead:
         )
 
         read_count = [0]
-        original_read = type(page).read_text
+        original_read = type(page).read_bytes
 
         def counting_read(self, *args, **kwargs):
             read_count[0] += 1
             return original_read(self, *args, **kwargs)
 
-        monkeypatch.setattr(type(page), "read_text", counting_read)
+        monkeypatch.setattr(type(page), "read_bytes", counting_read)
         monkeypatch.setattr(
             "kb.ingest.pipeline.atomic_text_write",
             lambda content, path: path.write_text(content, encoding="utf-8"),

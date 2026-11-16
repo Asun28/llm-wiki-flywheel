@@ -34,6 +34,7 @@ from kb.ingest.evidence import append_evidence_trail, render_initial_evidence_tr
 from kb.ingest.extractors import extract_from_source
 from kb.utils.hashing import hash_bytes
 from kb.utils.io import atomic_text_write, file_lock
+from kb.utils.line_ends import read_page_text, restore_line_ends
 from kb.utils.page_lock import page_lock
 from kb.utils.pages import load_all_pages, normalize_sources
 from kb.utils.paths import make_source_ref
@@ -717,6 +718,11 @@ def _build_item_content(name: str, source_ref: str, context: str, verb: str) -> 
     return "\n".join(lines)
 
 
+def _to_lf(text: str) -> str:
+    """Return ``text`` with every CRLF and lone CR turned into LF (#175 R5)."""
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def _inline_code(text: str) -> str:
     """Render ``text`` as one CommonMark inline code span (#161).
 
@@ -736,11 +742,14 @@ def _extract_entity_context(name: str, extraction: dict) -> str:
     Searches key_claims, core_argument, and abstract for mentions of the entity.
     Returns a brief description or empty string if nothing relevant found.
     """
-    name_lower = name.lower()
+    # #175 R7/R8: the name and every value are LF before they are searched or
+    # sanitized, so the search compares LF forms and `sanitize_extraction_field`
+    # removes a heading line a CR introduces exactly as one an LF introduces.
+    name_lower = _to_lf(name).lower()
     relevant = []
 
     context_values = [
-        _coerce_str_field(extraction, field)
+        _to_lf(_coerce_str_field(extraction, field))
         for field in ("core_argument", "abstract", "description", "problem_solved")
     ]
     for val in context_values:
@@ -751,9 +760,10 @@ def _extract_entity_context(name: str, extraction: dict) -> str:
     key_claims = extraction.get("key_claims")
     key_points = extraction.get("key_points")
     for claim in key_claims if key_claims is not None else key_points or []:
-        if isinstance(claim, str) and bool(
-            re.search(rf"\b{re.escape(name_lower)}\b", claim.lower())
-        ):
+        if not isinstance(claim, str):
+            continue
+        claim = _to_lf(claim)
+        if re.search(rf"\b{re.escape(name_lower)}\b", claim.lower()):
             relevant.append(claim)
 
     if not relevant:
@@ -854,12 +864,11 @@ def _update_existing_page_body(
     """
     with page_lock(page_path):
         # Fix 2.2: Read file exactly once; parse frontmatter from in-memory content (avoids TOCTOU).
-        content = page_path.read_text(encoding="utf-8")
-        # Cycle 6 AC7 — normalize CRLF → LF so `_SOURCE_BLOCK_RE` (LF-only, line 45)
-        # matches CRLF-encoded frontmatter. Without this, CRLF files fall through
-        # to the weak fallback at line ~456 which doesn't match either ending,
-        # producing silent double `source:` keys. `atomic_text_write` writes LF.
-        content = content.replace("\r\n", "\n")
+        # Cycle 6 AC7 + #175: `read_page_text` returns LF text, so `_SOURCE_BLOCK_RE`
+        # (LF-only) matches CRLF-encoded frontmatter, plus the page's own line ends,
+        # which `restore_line_ends` puts back at the write.
+        content, line_ends = read_page_text(page_path)
+        original = content
         # Check frontmatter sources specifically, not full content
         try:
             post = frontmatter.loads(content)
@@ -907,7 +916,9 @@ def _update_existing_page_body(
         content = fm_text + body_text
 
         # 2. Append to References section (Fix 2.10: append after last ref, Fix 2.11: scope to body)
-        ref_line = f"- {verb} in {source_ref}"
+        # #175 R5: inserted text is LF before any pattern sees it (`source_ref` can
+        # hold a CR on POSIX; `safe_ref` above is escaped by `yaml_escape`).
+        ref_line = _to_lf(f"- {verb} in {source_ref}")
         # Cycle 7 AC5: mask fenced code blocks / inline code / markdown links
         # before running the `## References` regex so literal `## References`
         # text inside a code example cannot misdirect the insertion point. The
@@ -957,6 +968,8 @@ def _update_existing_page_body(
         if ctx is None and name and extraction:
             ctx = _extract_entity_context(name, extraction)
         if ctx:
+            # #175 R5: an extraction field keeps CR through `sanitize_extraction_field`.
+            ctx = _to_lf(ctx)
             masked_c, masked_codes, mask_pfx = _mask_code_blocks(content)
             if "## Context" in masked_c:
                 # Strip any leading `## Context` header that `_extract_entity_context`
@@ -968,7 +981,7 @@ def _update_existing_page_body(
                     # Nothing left after stripping the header — skip.
                     pass
                 else:
-                    subsection = f"\n### From {_inline_code(source_ref)}\n\n{ctx_body}\n"
+                    subsection = f"\n### From {_inline_code(_to_lf(source_ref))}\n\n{ctx_body}\n"
                     # Find END of Context section (next ## header OR end-of-string).
                     match = re.search(
                         r"(^## Context\n(?:.*\n)*?)(?=^## |\Z)",
@@ -991,8 +1004,13 @@ def _update_existing_page_body(
                 else:
                     content += f"\n{ctx}\n"
 
+        # #175 R5: the read text, `ctx` and `ref_line` are LF already and `safe_ref`
+        # is escaped; this guard keeps R5 from depending on that list. On a CRLF page
+        # the restore then gives one CRLF per line; on an LF page the result is the
+        # all-LF page the evidence append's `read_text` produced before #175.
+        content = _to_lf(content)
         # Fix 2.1: Use atomic write. Cycle 20 AC11 — still inside file_lock(page_path).
-        atomic_text_write(content, page_path)
+        atomic_text_write(restore_line_ends(content, original, line_ends), page_path)
     # Lock released — caller (`_update_existing_page`) now safely invokes
     # `append_evidence_trail`, which acquires its own `file_lock(page_path)`.
     return True

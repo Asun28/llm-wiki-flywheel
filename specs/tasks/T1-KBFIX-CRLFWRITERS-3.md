@@ -80,3 +80,52 @@ ruff check src/ tests/ && python -m pytest tests/test_kbfix_crlf_writers.py test
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+
+### Attempt 1 (2026-11-16): successor of T1-KBFIX-CRLFWRITERS-2, branch continued from `2c159fb`
+
+- Branch origin: T1-KBFIX-CRLFWRITERS-2 at `2c159fb` (attempts 1-3 evidence in `specs/tasks/T1-KBFIX-CRLFWRITERS.md`, attempts 1-2 in `specs/tasks/T1-KBFIX-CRLFWRITERS-2.md`). Base sync: merge `b9a31cd` (by the lead; card files only, no conflict). No rebase or amend.
+- Carried RED receipts: `adc752a` (acceptance 1-5: 11 failed, 4 passed), `e378b83` (acceptance 8: 5 failed, 16 passed), `967189a` (F1, `## Context` header strip received CR: 1 failed, 22 passed), `1161f61` (R7, extraction name search received CR: 2 failed, 23 passed); acceptance 9 tests `d6c3142`: 7 failed against `49bc779`'s src, 7 passed on `0217e00`.
+- This card: `3593b2c` (CHANGELOG.md heading "T1-KBFIX-CRLFWRITERS, continued as T1-KBFIX-CRLFWRITERS-2 and shipped as T1-KBFIX-CRLFWRITERS-3"; CHANGELOG-history.md `**Cards:**` line names all three cards). No src or test change: `git diff 2c159fb HEAD --stat -- src tests` is empty.
+- `scripts/verify_docs.py` (`3593b2c`): collected 3940, test files 224, `OK - docs in sync`.
+- DoD (`3593b2c`, Windows, main checkout `.venv`, `dod_command` identical to the -2 card's): exit 0. `ruff check src/ tests/`: `All checks passed!`; pytest: `663 passed, 4 skipped, 3 warnings in 55.34s`; `6 snapshots passed.`
+- Full suite: carried from `e0916ea` (T1-KBFIX-CRLFWRITERS-2), `python -m pytest -q -p no:cacheprovider`, nothing deselected: exit 0, `3894 passed, 29 skipped, 17 xfailed, 54 warnings in 241.06s` (3940 collected). `git diff e0916ea HEAD -- src tests` is empty, so it was not rerun.
+- `git diff --numstat origin/main...HEAD` (`3593b2c`, origin/main at the merge base of `b9a31cd`): `14 0 CHANGELOG-history.md`, `1 0 CHANGELOG.md`, `1 1 CLAUDE.md`, `1 1 docs/reference/architecture.md`, `60 0 specs/tasks/T1-KBFIX-CRLFWRITERS-2.md`, `71 0 specs/tasks/T1-KBFIX-CRLFWRITERS.md`, `10 2 src/kb/ingest/evidence.py`, `27 11 src/kb/ingest/pipeline.py`, `5 3 src/kb/lint/checks/dead_links.py`, `2 2 tests/test_ingest.py`, `564 0 tests/test_kbfix_crlf_writers.py`, `1 1 tests/test_lint.py`.
+- Not changed (recorded on -2): the name search's pattern is built from `re.escape(name.lower())`, so a `name` holding CR would still reach `re`; the comment after the body write in `src/kb/ingest/pipeline.py` still says `append_evidence_trail` "acquires its own `file_lock(page_path)`" (it re-enters `page_lock` since cycle 81).
+
+| Acceptance | Test or command | Status |
+|---|---|---|
+| 1 | `test_reingest_with_context_keeps_crlf_and_matches_lf_copy` | pass |
+| 2 | `test_fresh_references_block_keeps_crlf[no-references, references-header-not-matched]`, `test_context_inserted_before_references_keeps_crlf` | pass |
+| 3 | `test_evidence_append_keeps_crlf_in_each_branch[sentinel-in-section, header-without-sentinel, no-header]` | pass |
+| 4 | `test_dead_links_fix_keeps_crlf_and_leaves_clean_page_unwritten`, `test_dead_link_only_inside_code_leaves_crlf_page_unwritten` | pass |
+| 5 | `test_mixed_page_keeps_the_lf_of_an_unchanged_line[ingest-body, evidence, dead-links]`, `test_lf_page_is_written_with_the_same_bytes_as_before[ingest-body, evidence, dead-links]` | pass |
+| 6 | DoD exit 0; full suite exit 0 (`e0916ea`, src/tests unchanged since); existing-test edits limited to `tests/test_ingest.py` (`counting_read` spy) and `tests/test_lint.py` (one expected-value line) | pass |
+| 7 | `architecture.md` (three writers next to the linker, inserted-CR rule); one entry each in `CHANGELOG.md` and `CHANGELOG-history.md` under T1-KBFIX-CRLFWRITERS naming T1-KBFIX-CRLFWRITERS-2 and T1-KBFIX-CRLFWRITERS-3; `CLAUDE.md` State = `verify_docs.py` (3940 / 224) | pass (reviewer to verify) |
+| 8 | `test_cr_in_inserted_context_is_written_crlf_on_crlf_page[extraction, direct-ctx]`, `test_cr_in_inserted_context_on_lf_page_writes_the_bytes_of_before[extraction, direct-ctx]`, `test_cr_in_evidence_action_is_written_crlf_on_crlf_page`, `test_cr_in_evidence_action_on_lf_page_writes_the_bytes_of_before` | pass |
+| 9 | `test_body_writer_patterns_never_see_a_cr[direct-ctx, extraction] x [context, no-context]`, `test_context_header_ending_in_lone_cr_adds_no_second_header`, `test_context_holding_cr_writes_what_its_lf_form_writes[3 shapes x lf, crlf]` | pass |
+
+### Attempt 2 (2026-11-16): R3 decision 1 findings F1-F4 repaired (card amendment f85752f / 80193f8: R8, acceptance 10)
+
+- Base sync: merge `9cb932e` (origin/main `80193f8`; card only, no conflict).
+- RED `1b64149` (acceptance 10 tests, src as at `6c07c78`): exit 1, `9 failed, 32 passed`. `test_cr_forged_heading_in_extraction_is_sanitized_like_its_lf_form[lf, crlf]`: two `## Evidence Trail` lines (F1: the sanitizer's line-anchored patterns do not treat a lone CR as a line start, and the body writer's LF pass then made the forged heading real). `test_name_holding_cr_still_finds_its_context[lone-cr, crlf] x [core_argument, key_claims, key_points]`: no context (F2/F3: R7 turned the values into LF but not the name). `test_new_page_from_cr_forged_value_holds_no_forged_heading`: two `## Evidence Trail` lines. The six name tests pass against `733b476`'s src (`-o pythonpath=<733b476 src copy>`: `6 passed`), so they pin behaviour from before the card.
+- Fix `42611b5`: at the top of `_extract_entity_context`, `name_lower = _to_lf(name).lower()`, and every value it reads (`core_argument`, `abstract`, `description`, `problem_solved`, each `key_claims` / `key_points` string) goes through `_to_lf` before the name search and before `sanitize_extraction_field`. Both callers share it: the update path and the new-page path in `_process_item_batch`. A new page built from a CR-bearing value now holds LF in its context and loses a CR-introduced heading, as R8 intends.
+- Docs `f08a5f5`: R8 wording in `architecture.md`, `CHANGELOG.md` and `CHANGELOG-history.md` (tests and design history); `CLAUDE.md` State `3949 tests across 224 test files`; `scripts/verify_docs.py`: collected 3949, files 224, `OK - docs in sync`.
+- DoD (`f08a5f5`, Windows, main checkout `.venv`, `dod_command` unchanged): exit 0. `ruff check src/ tests/`: `All checks passed!`; pytest: `672 passed, 4 skipped, 3 warnings in 45.91s`; `6 snapshots passed.`
+- Full suite (F4), run on `f08a5f5`, the candidate's src and tests (this evidence commit changes only this card file): `python -m pytest -q -p no:cacheprovider`, nothing deselected: exit 0, `3903 passed, 29 skipped, 17 xfailed, 54 warnings in 248.77s` (3949 collected).
+- `git diff --numstat origin/main...HEAD` (`f08a5f5`, origin/main `80193f8`): `14 0 CHANGELOG-history.md`, `1 0 CHANGELOG.md`, `1 1 CLAUDE.md`, `1 1 docs/reference/architecture.md`, `60 0 specs/tasks/T1-KBFIX-CRLFWRITERS-2.md`, `25 0 specs/tasks/T1-KBFIX-CRLFWRITERS-3.md`, `71 0 specs/tasks/T1-KBFIX-CRLFWRITERS.md`, `10 2 src/kb/ingest/evidence.py`, `32 14 src/kb/ingest/pipeline.py`, `5 3 src/kb/lint/checks/dead_links.py`, `2 2 tests/test_ingest.py`, `631 0 tests/test_kbfix_crlf_writers.py`, `1 1 tests/test_lint.py`.
+- Not changed (outside the card): the comment after the body write in `src/kb/ingest/pipeline.py` says `append_evidence_trail` "acquires its own `file_lock(page_path)`"; since cycle 81 it re-enters `page_lock`.
+
+| Acceptance | Test or command | Status |
+|---|---|---|
+| 1 | `test_reingest_with_context_keeps_crlf_and_matches_lf_copy` | pass |
+| 2 | `test_fresh_references_block_keeps_crlf[no-references, references-header-not-matched]`, `test_context_inserted_before_references_keeps_crlf` | pass |
+| 3 | `test_evidence_append_keeps_crlf_in_each_branch[sentinel-in-section, header-without-sentinel, no-header]` | pass |
+| 4 | `test_dead_links_fix_keeps_crlf_and_leaves_clean_page_unwritten`, `test_dead_link_only_inside_code_leaves_crlf_page_unwritten` | pass |
+| 5 | `test_mixed_page_keeps_the_lf_of_an_unchanged_line[ingest-body, evidence, dead-links]`, `test_lf_page_is_written_with_the_same_bytes_as_before[ingest-body, evidence, dead-links]` | pass |
+| 6 | DoD exit 0; full suite exit 0 on `f08a5f5`; existing-test edits limited to `tests/test_ingest.py` (`counting_read` spy) and `tests/test_lint.py` (one expected-value line) | pass |
+| 7 | `architecture.md` (three writers next to the linker, inserted-CR rule, R8); one entry each in `CHANGELOG.md` and `CHANGELOG-history.md` under T1-KBFIX-CRLFWRITERS naming T1-KBFIX-CRLFWRITERS-2 and T1-KBFIX-CRLFWRITERS-3; `CLAUDE.md` State = `verify_docs.py` (3949 / 224) | pass (reviewer to verify) |
+| 8 | `test_cr_in_inserted_context_is_written_crlf_on_crlf_page[extraction, direct-ctx]`, `test_cr_in_inserted_context_on_lf_page_writes_the_bytes_of_before[extraction, direct-ctx]`, `test_cr_in_evidence_action_is_written_crlf_on_crlf_page`, `test_cr_in_evidence_action_on_lf_page_writes_the_bytes_of_before` | pass |
+| 9 | `test_body_writer_patterns_never_see_a_cr[direct-ctx, extraction] x [context, no-context]`, `test_context_header_ending_in_lone_cr_adds_no_second_header`, `test_context_holding_cr_writes_what_its_lf_form_writes[3 shapes x lf, crlf]` | pass |
+| 10 | `test_cr_forged_heading_in_extraction_is_sanitized_like_its_lf_form[lf, crlf]`, `test_name_holding_cr_still_finds_its_context[lone-cr, crlf] x [core_argument, key_claims, key_points]`, `test_new_page_from_cr_forged_value_holds_no_forged_heading` | pass |
