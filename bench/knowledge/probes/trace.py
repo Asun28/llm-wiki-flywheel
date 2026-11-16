@@ -134,7 +134,8 @@ HTML_BLOCKS = [
     (re.compile(rf"</?(?:{HTML_BLOCK_NAMES})(?=[ \t]|/?>|\Z)", re.IGNORECASE | re.ASCII), None),
     (
         re.compile(
-            rf"(?!</?(?:{HTML_RAW_NAMES})(?![A-Za-z0-9-]))(?:{OPEN_TAG}|{CLOSE_TAG})[ \t]*\Z",
+            # Only an open tag of a type 1 name is left out; its closing tag starts a block.
+            rf"(?:(?!<(?:{HTML_RAW_NAMES})(?![A-Za-z0-9-])){OPEN_TAG}|{CLOSE_TAG})[ \t]*\Z",
             re.IGNORECASE | re.ASCII,
         ),
         None,
@@ -215,12 +216,14 @@ def classify_lines(lines: list[str]) -> list[bool]:
     rows. HTML blocks (section 4.6, all seven types) are recognised too: their lines
     stay kept text, and while one is open no line in it opens a fence or forms a
     heading or table. Blockquotes and list items are tracked as containers so these
-    blocks are found inside them too; tabs count by CommonMark's column rule. The Evidence Trail
-    follows R3's text: from the line `## Evidence Trail` to the next `## ` ATX heading.
+    blocks are found inside them too; tabs count by CommonMark's column rule. The
+    Evidence Trail follows R3's text: from the line `## Evidence Trail` to the next `## `
+    ATX heading; that line inside an HTML block is HTML text and starts no trail.
     """
     kept = [True] * len(lines)
     content = [0] * len(lines)  # offset after the container markers, for table cells
     level_two_atx: set[int] = set()
+    in_html: set[int] = set()  # lines of HTML blocks
     # Each container is [kind, content indent, has content]: ("quote", 0, True) or
     # ("item", indent, False while an item that began with a blank line is empty).
     stack: list[list] = []
@@ -260,7 +263,11 @@ def classify_lines(lines: list[str]) -> list[bool]:
         if leaf is not None and leaf["kind"] == "html":
             if all_matched:  # the line is HTML block content, kept as text
                 end = leaf["end"]
-                if is_blank(s[pos:]) if end is None else end.search(s[pos:]):
+                if end is None and is_blank(s[pos:]):
+                    leaf = None  # the blank line ending a type 6 or 7 block is not in it
+                    continue
+                in_html.add(i)
+                if end is not None and end.search(s[pos:]):
                     leaf = None
                 continue
             leaf = None  # an HTML block ends with its container
@@ -345,6 +352,7 @@ def classify_lines(lines: list[str]) -> list[bool]:
                 end = HTML_BLOCKS[kind - 1][1]
                 ends_here = end is not None and end.search(after)
                 leaf = None if ends_here else {"kind": "html", "end": end}
+                in_html.add(i)
                 continue
             fence = fence_opener(after)
             if fence:
@@ -390,7 +398,7 @@ def classify_lines(lines: list[str]) -> list[bool]:
 
     in_trail = False
     for i, s in enumerate(lines):
-        if s == TRAIL_LINE:
+        if s == TRAIL_LINE and i not in in_html:
             in_trail = True
         elif i in level_two_atx:
             in_trail = False
