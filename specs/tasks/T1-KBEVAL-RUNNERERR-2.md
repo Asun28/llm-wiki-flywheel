@@ -1,7 +1,7 @@
 ---
 id: T1-KBEVAL-RUNNERERR-2
 title: "The knowledge-bench runner reports its six error paths with a defined exit code and never lets a probe write inside an input directory (#148)"
-status: todo
+status: merged
 branch: T1-KBEVAL-RUNNERERR-2
 worktree: D:\wt\llm-wiki-flywheel\T1-KBEVAL-RUNNERERR-2
 plan_ref: plans/kb-fixes-2.md#order-of-work
