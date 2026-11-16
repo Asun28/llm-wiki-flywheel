@@ -1,7 +1,7 @@
 ---
 id: T0-KBFIX-CRREF
 title: "Ingest refuses a source path whose reference holds a CR or LF (#179)"
-status: todo
+status: merged
 branch: T0-KBFIX-CRREF
 worktree: D:\wt\llm-wiki-flywheel\T0-KBFIX-CRREF
 allow_paths:
