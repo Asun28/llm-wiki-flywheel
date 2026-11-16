@@ -24,7 +24,7 @@ from kb.mcp._offload import register_long_tool
 from kb.mcp.app import _validate_notes, _validate_page_id, mcp
 from kb.utils.pages import load_all_pages
 from kb.utils.sanitize import sanitize_error_text
-from kb.utils.text import yaml_escape
+from kb.utils.text import yaml_escape, yaml_sanitize
 
 logger = logging.getLogger(__name__)
 
@@ -507,7 +507,18 @@ def kb_create_page(
         return f"Error: Invalid confidence '{confidence}'. Use one of: {valid}"
 
     # Build source list and validate before checking existence
-    sources = [s.strip() for s in source_refs.split(",") if s.strip()] if source_refs else []
+    entries = source_refs.split(",") if source_refs else []
+    # #185: each entry is written below as `yaml_escape(s)`, whose `yaml_sanitize`
+    # deletes controls, NEL, U+2028/U+2029, the BOM and bidi marks, so the page would
+    # cite another file. Checked on each entry as given: `strip()` removes NEL and the
+    # separators at an entry's ends (R3 F1). `!r` keeps them out of the message.
+    for entry in entries:
+        if yaml_sanitize(entry) != entry:
+            return (
+                f"Error: source_ref {entry!r} holds a character the wiki frontmatter cannot "
+                "keep (a control character, line or paragraph separator, BOM or bidi mark)."
+            )
+    sources = [s.strip() for s in entries if s.strip()]
 
     # Validate source refs — reject path traversal and absolute paths
     for src in sources:
