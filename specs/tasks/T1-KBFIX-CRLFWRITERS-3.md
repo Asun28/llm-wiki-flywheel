@@ -76,3 +76,28 @@ ruff check src/ tests/ && python -m pytest tests/test_kbfix_crlf_writers.py test
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+
+### Attempt 1 (2026-11-16): successor of T1-KBFIX-CRLFWRITERS-2, branch continued from `2c159fb`
+
+- Branch origin: T1-KBFIX-CRLFWRITERS-2 at `2c159fb` (attempts 1-3 evidence in `specs/tasks/T1-KBFIX-CRLFWRITERS.md`, attempts 1-2 in `specs/tasks/T1-KBFIX-CRLFWRITERS-2.md`). Base sync: merge `b9a31cd` (by the lead; card files only, no conflict). No rebase or amend.
+- Carried RED receipts: `adc752a` (acceptance 1-5: 11 failed, 4 passed), `e378b83` (acceptance 8: 5 failed, 16 passed), `967189a` (F1, `## Context` header strip received CR: 1 failed, 22 passed), `1161f61` (R7, extraction name search received CR: 2 failed, 23 passed); acceptance 9 tests `d6c3142`: 7 failed against `49bc779`'s src, 7 passed on `0217e00`.
+- This card: `3593b2c` (CHANGELOG.md heading "T1-KBFIX-CRLFWRITERS, continued as T1-KBFIX-CRLFWRITERS-2 and shipped as T1-KBFIX-CRLFWRITERS-3"; CHANGELOG-history.md `**Cards:**` line names all three cards). No src or test change: `git diff 2c159fb HEAD --stat -- src tests` is empty.
+- `scripts/verify_docs.py` (`3593b2c`): collected 3940, test files 224, `OK - docs in sync`.
+- DoD (`3593b2c`, Windows, main checkout `.venv`, `dod_command` identical to the -2 card's): exit 0. `ruff check src/ tests/`: `All checks passed!`; pytest: `663 passed, 4 skipped, 3 warnings in 55.34s`; `6 snapshots passed.`
+- Full suite: carried from `e0916ea` (T1-KBFIX-CRLFWRITERS-2), `python -m pytest -q -p no:cacheprovider`, nothing deselected: exit 0, `3894 passed, 29 skipped, 17 xfailed, 54 warnings in 241.06s` (3940 collected). `git diff e0916ea HEAD -- src tests` is empty, so it was not rerun.
+- `git diff --numstat origin/main...HEAD` (`3593b2c`, origin/main at the merge base of `b9a31cd`): `14 0 CHANGELOG-history.md`, `1 0 CHANGELOG.md`, `1 1 CLAUDE.md`, `1 1 docs/reference/architecture.md`, `60 0 specs/tasks/T1-KBFIX-CRLFWRITERS-2.md`, `71 0 specs/tasks/T1-KBFIX-CRLFWRITERS.md`, `10 2 src/kb/ingest/evidence.py`, `27 11 src/kb/ingest/pipeline.py`, `5 3 src/kb/lint/checks/dead_links.py`, `2 2 tests/test_ingest.py`, `564 0 tests/test_kbfix_crlf_writers.py`, `1 1 tests/test_lint.py`.
+- Not changed (recorded on -2): the name search's pattern is built from `re.escape(name.lower())`, so a `name` holding CR would still reach `re`; the comment after the body write in `src/kb/ingest/pipeline.py` still says `append_evidence_trail` "acquires its own `file_lock(page_path)`" (it re-enters `page_lock` since cycle 81).
+
+| Acceptance | Test or command | Status |
+|---|---|---|
+| 1 | `test_reingest_with_context_keeps_crlf_and_matches_lf_copy` | pass |
+| 2 | `test_fresh_references_block_keeps_crlf[no-references, references-header-not-matched]`, `test_context_inserted_before_references_keeps_crlf` | pass |
+| 3 | `test_evidence_append_keeps_crlf_in_each_branch[sentinel-in-section, header-without-sentinel, no-header]` | pass |
+| 4 | `test_dead_links_fix_keeps_crlf_and_leaves_clean_page_unwritten`, `test_dead_link_only_inside_code_leaves_crlf_page_unwritten` | pass |
+| 5 | `test_mixed_page_keeps_the_lf_of_an_unchanged_line[ingest-body, evidence, dead-links]`, `test_lf_page_is_written_with_the_same_bytes_as_before[ingest-body, evidence, dead-links]` | pass |
+| 6 | DoD exit 0; full suite exit 0 (`e0916ea`, src/tests unchanged since); existing-test edits limited to `tests/test_ingest.py` (`counting_read` spy) and `tests/test_lint.py` (one expected-value line) | pass |
+| 7 | `architecture.md` (three writers next to the linker, inserted-CR rule); one entry each in `CHANGELOG.md` and `CHANGELOG-history.md` under T1-KBFIX-CRLFWRITERS naming T1-KBFIX-CRLFWRITERS-2 and T1-KBFIX-CRLFWRITERS-3; `CLAUDE.md` State = `verify_docs.py` (3940 / 224) | pass (reviewer to verify) |
+| 8 | `test_cr_in_inserted_context_is_written_crlf_on_crlf_page[extraction, direct-ctx]`, `test_cr_in_inserted_context_on_lf_page_writes_the_bytes_of_before[extraction, direct-ctx]`, `test_cr_in_evidence_action_is_written_crlf_on_crlf_page`, `test_cr_in_evidence_action_on_lf_page_writes_the_bytes_of_before` | pass |
+| 9 | `test_body_writer_patterns_never_see_a_cr[direct-ctx, extraction] x [context, no-context]`, `test_context_header_ending_in_lone_cr_adds_no_second_header`, `test_context_holding_cr_writes_what_its_lf_form_writes[3 shapes x lf, crlf]` | pass |
