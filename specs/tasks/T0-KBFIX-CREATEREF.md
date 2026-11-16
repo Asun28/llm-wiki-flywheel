@@ -52,3 +52,15 @@ ruff check src/ tests/ && python -m pytest tests/test_kbfix_create_page_stripped
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+
+Attempt 1. RED at f5994e0: `test_create_page_refuses_an_entry_holding_a_character_the_frontmatter_deletes[del,nel,line-separator,paragraph-separator,bom,rlo,lri]` and `test_create_page_refuses_a_bad_entry_after_a_valid_one` 8 failed (`AssertionError`: the call returned `Created: concepts/probe ...`), `test_create_page_keeps_an_entry_the_frontmatter_can_hold[non-ascii]` passed, 4 POSIX cases skipped (Windows).
+
+| Acceptance item | Proving test or command | Result |
+|---|---|---|
+| 1. existing real files with DEL, NEL, U+2028, U+2029, BOM, RLO, LRI: `Error:`, `frontmatter cannot keep`, `repr`, message unchanged by `yaml_sanitize`, sandbox unchanged | `test_create_page_refuses_an_entry_holding_a_character_the_frontmatter_deletes[del,nel,line-separator,paragraph-separator,bom,rlo,lri]` | pass |
+| 2. POSIX real files with U+0001, VT, U+001F refused the same way | `test_create_page_refuses_an_entry_holding_a_character_the_frontmatter_deletes[soh,vt,us]` | skipped on Windows; runs in CI (ubuntu-latest) |
+| 3. a bad entry after a valid one is refused | `test_create_page_refuses_a_bad_entry_after_a_valid_one` | pass |
+| 4. controls `café.md` and (POSIX) `b<TAB>.md`: `Created:`, `source:` equals the entry | `test_create_page_keeps_an_entry_the_frontmatter_can_hold[non-ascii,tab]` | non-ascii pass; tab skipped on Windows, runs in CI |
+| 5. DoD green, no existing test edited, CHANGELOG / CHANGELOG-history entries, CLAUDE.md counts | DoD below; `git diff main --stat -- tests/` lists only the new file; `python scripts/verify_docs.py`: 3980 tests, 227 files, docs in sync | pass (reviewer-verified) |

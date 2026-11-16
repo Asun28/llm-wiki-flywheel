@@ -17,6 +17,17 @@ Purpose: Full per-cycle bullet-level detail archive. CHANGELOG.md is the compact
 
 > Detailed per-cycle entries live here. High-level summaries remain in [CHANGELOG.md](CHANGELOG.md); full bullet-level detail belongs here.
 
+### 2026-11-17 — T0-KBFIX-CREATEREF (`kb_create_page` refuses a `source_refs` entry holding a character the frontmatter writer deletes, #185)
+
+**Card:** T0-KBFIX-CREATEREF (goal g-20261116221610-cebfcc, T0-bugfix). Follow-up filed by T0-KBFIX-STRIPREF.
+
+**Theme:** `kb_create_page` builds each frontmatter `source:` entry as `yaml_escape(s)`, and `yaml_escape` first runs `yaml_sanitize`, which deletes C0/C1 controls other than TAB, LF and CR, DEL, NEL, U+2028, U+2029, the BOM and bidi marks. The tool checks only that the cited raw file exists, so an existing file whose name holds one of these characters passed and the page cited another name. Reproduced on main d38dd31 in the `tmp_kb_env` sandbox: with `raw/articles/b\x85.md` on disk the call returned `Created` and the frontmatter read `raw/articles/b.md`. #185 also proposed refusing CR and LF; `yaml_escape` writes those as `\r` / `\n` and they read back unchanged (shown for the same entry form in #179), and the tool writes no line-oriented file holding the entry, so they stay accepted.
+
+- **`src/kb/mcp/quality.py`.** The per-entry validation loop first checks `yaml_sanitize(src) != src` and returns `Error: source_ref <repr> holds a character the wiki frontmatter cannot keep (a control character, line or paragraph separator, BOM or bidi mark).` before any file system call for that entry and before the page and its log line are written. The predicate is the one `ingest_source` uses since #184. `yaml_sanitize` is imported alongside `yaml_escape`.
+- **Tests.** `tests/test_kbfix_create_page_stripped_ref.py` (new, 13 tests, real files only, every call inside `tmp_kb_env`): DEL, NEL, U+2028, U+2029, BOM, RLO and LRI (every platform) and U+0001, VT and U+001F (POSIX only) return `Error:` with `frontmatter cannot keep` and the entry's `repr`, a message `yaml_sanitize` leaves unchanged, and a sandbox snapshot unchanged; `raw/articles/a.md,raw/articles/b\x85.md` is refused the same way; controls `café.md` (every platform) and `b<TAB>.md` (POSIX only) return `Created:` and the page's `source:` list equals the entry. RED at f5994e0: 8 failed (the call returned `Created:`), the `café` control passed, 4 skipped on Windows.
+- **Not changed:** `yaml_escape` / `yaml_sanitize`, the title escaping, `ingest_source`; entries holding CR or LF.
+- **Tests:** 3967 → 3980 (+13).
+
 ### 2026-11-17 — T0-KBFIX-STRIPREF (ingest refuses a source reference holding a character the frontmatter writer deletes, #183)
 
 **Card:** T0-KBFIX-STRIPREF (goal g-20261116210115-0f0530, T0-bugfix). Follow-up filed by T0-KBFIX-CRREF.

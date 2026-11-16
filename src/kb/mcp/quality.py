@@ -24,7 +24,7 @@ from kb.mcp._offload import register_long_tool
 from kb.mcp.app import _validate_notes, _validate_page_id, mcp
 from kb.utils.pages import load_all_pages
 from kb.utils.sanitize import sanitize_error_text
-from kb.utils.text import yaml_escape
+from kb.utils.text import yaml_escape, yaml_sanitize
 
 logger = logging.getLogger(__name__)
 
@@ -511,6 +511,14 @@ def kb_create_page(
 
     # Validate source refs — reject path traversal and absolute paths
     for src in sources:
+        # #185: each entry is written below as `yaml_escape(s)`, whose `yaml_sanitize`
+        # deletes controls, NEL, U+2028/U+2029, the BOM and bidi marks, so the page
+        # would cite another file. Checked first; `!r` keeps them out of the message.
+        if yaml_sanitize(src) != src:
+            return (
+                f"Error: source_ref {src!r} holds a character the wiki frontmatter cannot "
+                "keep (a control character, line or paragraph separator, BOM or bidi mark)."
+            )
         if ".." in src or src.startswith("/") or src.startswith("\\") or os.path.isabs(src):
             return (
                 f"Error: Invalid source_ref '{src}'. "
