@@ -89,9 +89,7 @@ def test_ingest_refuses_a_reference_holding_a_line_break(
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows file names cannot hold CR or LF")
 @pytest.mark.parametrize("name", ["b\r.md", "b\r\n.md"], ids=["lone-cr", "crlf"])
-def test_ingest_refuses_a_posix_file_name_holding_a_line_break(
-    tmp_kb_env: Path, name: str
-) -> None:
+def test_ingest_refuses_a_posix_file_name_holding_a_line_break(tmp_kb_env: Path, name: str) -> None:
     raw = _seed(tmp_kb_env, name)
     before = _snapshot(tmp_kb_env)
 

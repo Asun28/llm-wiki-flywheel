@@ -916,8 +916,9 @@ def _update_existing_page_body(
         content = fm_text + body_text
 
         # 2. Append to References section (Fix 2.10: append after last ref, Fix 2.11: scope to body)
-        # #175 R5: inserted text is LF before any pattern sees it (`source_ref` can
-        # hold a CR on POSIX; `safe_ref` above is escaped by `yaml_escape`).
+        # #175 R5: inserted text is LF before any pattern sees it. `ingest_source`
+        # refuses a `source_ref` holding CR or LF (#179); the conversion stays for a
+        # direct caller. `safe_ref` above is escaped by `yaml_escape`.
         ref_line = _to_lf(f"- {verb} in {source_ref}")
         # Cycle 7 AC5: mask fenced code blocks / inline code / markdown links
         # before running the `## References` regex so literal `## References`
@@ -1011,8 +1012,9 @@ def _update_existing_page_body(
         content = _to_lf(content)
         # Fix 2.1: Use atomic write. Cycle 20 AC11 — still inside file_lock(page_path).
         atomic_text_write(restore_line_ends(content, original, line_ends), page_path)
-    # Lock released — caller (`_update_existing_page`) now safely invokes
-    # `append_evidence_trail`, which acquires its own `file_lock(page_path)`.
+    # Under `_update_existing_page` the `page_lock` above was a nested re-entry, so
+    # the caller's lock still holds here; its `append_evidence_trail` call re-enters
+    # `page_lock` under that lock (cycle 81).
     return True
 
 
@@ -1554,6 +1556,13 @@ def ingest_source(
 
     # Build source reference early for duplicate check
     source_ref = make_source_ref(source_path, raw_dir=effective_raw_dir)
+    # #179: the reference is written into line-oriented files (a page's References
+    # line, `wiki/_sources.md`), which cannot keep a line break inside it. Refused
+    # before the first write; `!r` keeps the CR or LF out of the message.
+    if "\r" in source_ref or "\n" in source_ref:
+        raise ValueError(
+            f"Source path holds a line break (CR or LF) and cannot be ingested: {source_ref!r}"
+        )
     # Cycle 19 AC12/AC13 — derive manifest_ref ONCE; thread to BOTH the Phase-1
     # reservation AND the Phase-2 confirmation. source_ref is unchanged for
     # provenance / log entries / page frontmatter.
