@@ -8,7 +8,7 @@
 |---|---|---|
 | `--probe NAME` | every probe | Run only this probe. Give it more than once to run several. |
 | `--probes-dir DIR` | `bench/knowledge/probes/` | Directory searched for probe files. |
-| `--out DIR` | `_local/knowledge/` | Directory the records are written to (gitignored). |
+| `--out DIR` | `_local/knowledge/` | Directory the records are written to (gitignored). It must not be or lie inside an input directory (see exit code 2). |
 | `--wiki DIR` | `demo/wiki` | Wiki directory given to probes as `ctx.wiki`. |
 | `--raw DIR` | `demo/raw` | Raw-source directory given to probes as `ctx.raw`. |
 
@@ -19,8 +19,10 @@ Default paths are relative to the checkout root. A probe is a regular file (or a
 | Code | Meaning |
 |---|---|
 | 0 | Every probe returned a valid result and no guarded directory changed. |
-| 1 | A probe failed (no `run`, an invalid return value, or any exception other than `KeyboardInterrupt` while it was imported or run, `sys.exit` with any code included, or its record could not be written or its summary lines printed, a string UTF-8 cannot encode included), a guarded directory changed, or a guarded directory could not be listed. After a probe failure the other probes still run, write their records and the guard still runs. The failed probe has no record: `<out>/<probe>.json` from an earlier run is deleted before each probe runs. `KeyboardInterrupt` stops the run. |
-| 2 | Usage error: `--probe` names no file in the probes directory, or `--wiki`, `--raw` or `--probes-dir` is not a directory. No probe runs. |
+| 1 | A probe failed (no `run`, an invalid return value, or any exception other than `KeyboardInterrupt` while it was imported or run, `sys.exit` with any code included, or its record could not be written or its summary lines printed, a string UTF-8 cannot encode included), a record could not be removed, a guarded directory changed, or a guarded directory could not be listed. After a probe failure the other probes still run, write their records and the guard still runs, also when stdout and stderr cannot be written (a closed pipe exits 1, not 120). `KeyboardInterrupt` stops the run. |
+| 2 | Usage error: `--probe` names no file in the probes directory; `--wiki`, `--raw` or `--probes-dir` is not a directory; the probes directory cannot be listed (`cannot list --probes-dir: <dir>: <cause>`); `--out` is not a directory or cannot be created (`--out cannot be created: <dir>: <cause>`); or `--out`, after links are resolved, is or lies inside `--wiki`, `--raw`, or the checkout's `wiki/`, `raw/` or `.data/` (the line names both paths). No probe runs, and an overlapping `--out` is not created. |
+
+Record clean-up: before the first probe runs, `<out>/<probe>.json` of every selected probe is deleted, a read-only file included (the read-only attribute is cleared first); records of probes not selected with `--probe` are left alone. If one cannot be deleted (a directory at that path, for example), the runner prints `cannot remove record from an earlier run: <path>: <cause>` and exits 1 before any probe runs. A probe that fails has its record deleted the same way, so it has no record; one that cannot be deleted is named in `cannot remove record of failed probe: <path>: <cause>`.
 
 ## Record
 
