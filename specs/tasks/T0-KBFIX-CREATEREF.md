@@ -1,7 +1,7 @@
 ---
 id: T0-KBFIX-CREATEREF
 title: "kb_create_page refuses a source_refs entry holding a character the frontmatter writer deletes (#185)"
-status: todo
+status: merged
 branch: T0-KBFIX-CREATEREF
 worktree: D:\wt\llm-wiki-flywheel\T0-KBFIX-CREATEREF
 allow_paths:
