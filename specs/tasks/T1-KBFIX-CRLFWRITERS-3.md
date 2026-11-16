@@ -1,7 +1,7 @@
 ---
 id: T1-KBFIX-CRLFWRITERS-3
 title: "Re-ingest, evidence appends and `kb lint --fix` write a CRLF page back with its own line ends (#175, part 2)"
-status: todo
+status: merged
 branch: T1-KBFIX-CRLFWRITERS-3
 worktree: D:\wt\llm-wiki-flywheel\T1-KBFIX-CRLFWRITERS-3
 plan_ref: plans/kb-fixes-2.md#order-of-work
