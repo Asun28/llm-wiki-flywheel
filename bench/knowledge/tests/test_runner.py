@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import errno
 import inspect
 import json
 import os
 import re
+import shutil
+import stat
+import subprocess
 import sys
 from pathlib import Path
 
 import pytest
-from conftest import REPO
+from conftest import REPO, RUNNER
 
 RECORD_KEYS = {"probe", "invariants", "commit", "dirty", "arms"}
 GUARD = "guarded directory changed:"
@@ -664,3 +668,363 @@ def test_summary_print_failure_fails_the_probe_and_keeps_the_guard(
     assert "a_leaky" in err
     assert bench.records() == []
     assert any(GUARD in line and "leak.md" in line for line in err.splitlines())
+
+
+# -- T1-KBEVAL-RUNNERERR: error paths of the runner (#148) ------------------------
+
+
+def argv_for(bench, out: Path | None = None) -> list[str]:
+    return [
+        *("--probes-dir", str(bench.probes), "--wiki", str(bench.wiki)),
+        *("--raw", str(bench.raw), "--out", str(out or bench.out)),
+    ]
+
+
+def marker_probe(bench, name: str) -> Path:
+    """A valid probe that leaves a marker file when it runs; return the marker path."""
+    marker = bench.root / f"ran-{name}.txt"
+    bench.probe(
+        name,
+        f"def run(ctx):\n    open({str(marker)!r}, 'w').close()\n"
+        "    return {'invariants': [], 'arms': {}}\n",
+    )
+    return marker
+
+
+def read_only(path: Path) -> None:
+    os.chmod(path, stat.S_IREAD)
+
+
+# acceptance 1 [R1]
+
+
+def test_unlistable_probes_directory_exits_2_naming_it(bench, runner, monkeypatch, capsys):
+    marker = marker_probe(bench, "a")
+    monkeypatch.setattr(os, "scandir", scandir_denying(bench.probes, os.scandir))
+
+    code = runner.main(argv_for(bench))
+    output = capsys.readouterr()
+
+    assert code == 2, output
+    assert str(bench.probes) in output.err
+    assert "Traceback" not in output.err
+    assert not marker.exists()
+    assert bench.records() == []
+
+
+def test_empty_readable_probes_directory_exits_0_with_no_output(bench):
+    proc = bench.run()
+
+    assert proc.returncode == 0, proc.output
+    assert proc.output == ""
+    assert bench.records() == []
+
+
+# acceptance 2 [R2]
+
+
+def test_stale_records_of_selected_probes_are_gone_before_the_first_probe(bench):
+    """Read-only stale records of every selected probe are removed before any probe runs."""
+    seen = bench.root / "seen.json"
+    bench.probe(
+        "a_looker",
+        f"""
+        import json
+
+        def run(ctx):
+            names = ("a_looker.json", "b_other.json", "c_unselected.json")
+            with open({str(seen)!r}, "w", encoding="utf-8") as fh:
+                json.dump({{n: (ctx.out / n).exists() for n in names}}, fh)
+            return {{"invariants": [], "arms": {{}}}}
+        """,
+    )
+    bench.probe("b_other", VALID)
+    bench.probe("c_unselected", VALID)
+    bench.out.mkdir()
+    for name in ("a_looker", "b_other", "c_unselected"):
+        stale = bench.out / f"{name}.json"
+        stale.write_text('{"probe": "stale"}\n', encoding="utf-8")
+        read_only(stale)
+
+    proc = bench.run("--probe", "a_looker", "--probe", "b_other")
+
+    assert proc.returncode == 0, proc.output
+    observed = json.loads(seen.read_text(encoding="utf-8"))
+    assert observed == {"a_looker.json": False, "b_other.json": False, "c_unselected.json": True}
+    b_record = json.loads((bench.out / "b_other.json").read_text(encoding="utf-8"))
+    assert b_record["probe"] == "b_other"
+    unselected = bench.out / "c_unselected.json"
+    assert unselected.read_text(encoding="utf-8") == '{"probe": "stale"}\n'
+
+
+def test_stale_record_that_cannot_be_removed_exits_1_before_any_probe(bench):
+    first = marker_probe(bench, "a")
+    second = marker_probe(bench, "b")
+    bench.out.mkdir()
+    blocker = bench.out / "b.json"  # a directory: no unlink removes it
+    blocker.mkdir()
+    (blocker / "inside.txt").write_text("x", encoding="utf-8")
+
+    proc = bench.run()
+
+    assert proc.returncode == 1, proc.output
+    assert any(str(blocker) in line for line in proc.stderr.splitlines()), proc.output
+    assert "Traceback" not in proc.output
+    assert not first.exists() and not second.exists()
+    assert (blocker / "inside.txt").is_file()
+
+
+# acceptance 3 [R3]
+
+
+def test_failed_probe_leaves_no_read_only_record_of_its_own(bench):
+    bench.probe(
+        "a",
+        "import os, stat\n\n"
+        "def run(ctx):\n"
+        "    record = ctx.out / 'a.json'\n"
+        "    record.write_text('{}', encoding='utf-8')\n"
+        "    os.chmod(record, stat.S_IREAD)\n"
+        "    raise RuntimeError('boom')\n",
+    )
+
+    proc = bench.run()
+
+    assert proc.returncode == 1, proc.output
+    assert not (bench.out / "a.json").exists()
+    assert "Traceback" not in proc.output
+
+
+def test_failed_probe_record_that_cannot_be_removed_is_named_on_stderr(bench):
+    bench.probe(
+        "a",
+        "def run(ctx):\n    (ctx.out / 'a.json').mkdir()\n    raise RuntimeError('boom')\n",
+    )
+    bench.probe("b_good", VALID)
+
+    proc = bench.run()
+
+    assert proc.returncode == 1, proc.output
+    record = bench.out / "a.json"
+    assert any(str(record) in line for line in proc.stderr.splitlines()), proc.output
+    assert "Traceback" not in proc.output
+    assert (bench.out / "b_good.json").is_file()
+
+
+# acceptance 4 [R4] [R5]
+
+
+def run_with_closed_pipe(bench) -> int:
+    """Run the runner with stdout and stderr on one pipe whose reading end is already closed."""
+    env = dict(os.environ, PYTHONIOENCODING="utf-8")
+    env.pop("KB_PROJECT_ROOT", None)
+    proc = subprocess.Popen(
+        [sys.executable, str(RUNNER), *argv_for(bench)],
+        cwd=str(REPO),
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    proc.stdout.close()
+    return proc.wait(timeout=60)
+
+
+def require_closed_pipe_write_error() -> None:
+    """Skip where the OS reports no error for a write to a pipe whose reader has closed."""
+    child = (
+        # Writes past a full pipe buffer, so a write made before the parent closed
+        # its end cannot pass for one made after; os._exit skips the shutdown flush.
+        "import os, sys\n"
+        "try:\n"
+        "    for _ in range(64):\n"
+        "        sys.stdout.write('x' * 65536); sys.stdout.flush()\n"
+        "except OSError:\n"
+        "    os._exit(7)\n"
+        "os._exit(0)\n"
+    )
+    proc = subprocess.Popen(
+        [sys.executable, "-c", child], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+    )
+    proc.stdout.close()
+    if proc.wait(timeout=60) != 7:
+        pytest.skip("this OS reports no error for a write to a closed pipe")
+
+
+def test_closed_output_pipe_keeps_later_probes_and_exit_code_1(bench):
+    require_closed_pipe_write_error()
+    bench.probe("a_failing", "def run(ctx):\n    raise RuntimeError('boom')\n")
+    bench.probe("b_quiet", "def run(ctx):\n    return {'invariants': [], 'arms': {}}\n")
+
+    code = run_with_closed_pipe(bench)
+
+    assert code == 1
+    assert bench.records() == ["b_quiet.json"]
+
+
+def test_closed_output_pipe_with_a_guard_change_exits_1_not_120(bench):
+    require_closed_pipe_write_error()
+    bench.probe(
+        "a_leaky",
+        "def run(ctx):\n"
+        "    (ctx.wiki / 'leak.md').write_text('x', encoding='utf-8')\n"
+        "    return {'invariants': [], 'arms': {}}\n",
+    )
+
+    assert run_with_closed_pipe(bench) == 1
+
+
+def test_closed_output_pipe_with_summary_lines_exits_1_not_120(bench):
+    require_closed_pipe_write_error()
+    bench.probe("a", VALID)
+
+    assert run_with_closed_pipe(bench) == 1
+
+
+class UnavailableStream:
+    """A stream whose every write and flush fails; it keeps what was attempted."""
+
+    def __init__(self):
+        self.attempts: list[str] = []
+
+    def write(self, text):
+        self.attempts.append(text)
+        raise OSError(errno.EPIPE, "Broken pipe")
+
+    def flush(self):
+        raise OSError(errno.EPIPE, "Broken pipe")
+
+
+def test_unwritable_diagnostic_stops_neither_later_probes_nor_the_guard(bench, runner, monkeypatch):
+    bench.probe(
+        "a_failing",
+        "def run(ctx):\n"
+        "    (ctx.wiki / 'leak.md').write_text('x', encoding='utf-8')\n"
+        "    raise RuntimeError('boom')\n",
+    )
+    bench.probe("b_quiet", "def run(ctx):\n    return {'invariants': [], 'arms': {}}\n")
+    err = UnavailableStream()
+    monkeypatch.setattr(sys, "stdout", UnavailableStream())
+    monkeypatch.setattr(sys, "stderr", err)
+
+    code = runner.main(argv_for(bench))
+
+    assert code == 1
+    assert bench.records() == ["b_quiet.json"]
+    assert any("a_failing" in text for text in err.attempts), err.attempts
+    assert any(GUARD in text and "leak.md" in text for text in err.attempts), err.attempts
+
+
+# acceptance 5 [R6]
+
+
+def test_out_naming_an_existing_file_exits_2(bench):
+    marker = marker_probe(bench, "a")
+    a_file = bench.root / "out.txt"
+    a_file.write_text("x", encoding="utf-8")
+
+    proc = bench.run(out=a_file)
+
+    assert proc.returncode == 2, proc.output
+    assert str(a_file) in proc.stderr
+    assert "Traceback" not in proc.output
+    assert not marker.exists()
+    assert a_file.read_text(encoding="utf-8") == "x"
+
+
+def mkdir_denying(locked: Path, real_mkdir):
+    """An os.mkdir that raises PermissionError for `locked` and passes everything else on.
+
+    Like scandir_denying, it accepts every argument form (a dir_fd keyword included)
+    and compares only a str, bytes or PathLike path with `locked`.
+    """
+
+    def mkdir(*args, **kwargs):
+        path = args[0] if args else kwargs.get("path")
+        if isinstance(path, (str, bytes, os.PathLike)):
+            if os.path.normcase(os.path.abspath(os.fsdecode(path))) == os.path.normcase(
+                str(locked)
+            ):
+                raise PermissionError(13, "Permission denied", os.fsdecode(path))
+        return real_mkdir(*args, **kwargs)
+
+    return mkdir
+
+
+def test_out_that_cannot_be_created_exits_2(bench, runner, monkeypatch, capsys):
+    marker = marker_probe(bench, "a")
+    out = bench.root / "denied" / "out"
+    monkeypatch.setattr(os, "mkdir", mkdir_denying(out, os.mkdir))
+
+    code = runner.main(argv_for(bench, out))
+    output = capsys.readouterr()
+
+    assert code == 2, output
+    assert str(out) in output.err
+    assert "Traceback" not in output.err
+    assert not marker.exists()
+    assert not out.exists()
+
+
+# acceptance 6 [R7]
+
+
+def assert_overlap_refused(proc, out: Path, protected: Path, marker: Path) -> None:
+    assert proc.returncode == 2, proc.output
+    lines = proc.stderr.splitlines()
+    assert any(str(out) in line and str(protected) in line for line in lines), proc.output
+    assert "Traceback" not in proc.output
+    assert not marker.exists()
+
+
+def test_out_equal_to_wiki_exits_2_naming_both(bench):
+    marker = marker_probe(bench, "a")
+    (bench.wiki / "page.md").write_text("body", encoding="utf-8")
+
+    proc = bench.run(out=bench.wiki)
+
+    assert_overlap_refused(proc, bench.wiki, bench.wiki, marker)
+    assert sorted(p.name for p in bench.wiki.iterdir()) == ["page.md"]
+
+
+def test_out_inside_raw_exits_2_and_is_not_created(bench):
+    marker = marker_probe(bench, "a")
+    out = bench.raw / "sub" / "out"
+
+    proc = bench.run(out=out)
+
+    assert_overlap_refused(proc, out, bench.raw, marker)
+    assert not (bench.raw / "sub").exists()
+
+
+@pytest.mark.parametrize("name", ["wiki", "raw", ".data"])
+def test_out_inside_a_checkout_input_directory_exits_2_and_is_not_created(bench, name):
+    marker = marker_probe(bench, "a")
+    protected = REPO / name
+    # The top directory this test may cause to exist; it does not exist beforehand,
+    # so removing it afterwards removes nothing the checkout already held.
+    top = protected / f"kbeval-runnererr-{os.getpid()}" if protected.exists() else protected
+    out = top / "nested" / "out"
+    assert not top.exists()
+    try:
+        proc = bench.run(out=out)
+
+        assert_overlap_refused(proc, out, protected, marker)
+        assert not top.exists()
+    finally:
+        if top.exists():  # only a runner that ignored the overlap made it
+            shutil.rmtree(top)
+
+
+@pytest.mark.parametrize("kind", ["dir_symlink", "junction"])
+def test_out_reaching_wiki_through_a_link_exits_2(bench, kind):
+    require_link_kind(bench, kind)
+    marker = marker_probe(bench, "a")
+    link = bench.root / "wiki_link"
+    make_link(kind, bench.wiki, link)
+    out = link / "out"
+
+    proc = bench.run(out=out)
+
+    assert_overlap_refused(proc, out, bench.wiki, marker)
+    assert not (bench.wiki / "out").exists()
