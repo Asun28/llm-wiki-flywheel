@@ -92,6 +92,43 @@ def test_create_page_refuses_a_bad_entry_after_a_valid_one(tmp_kb_env: Path) -> 
 
 
 @pytest.mark.parametrize(
+    ("source_refs", "bad"),
+    [
+        pytest.param("\x85", "\x85", id="nel-only"),
+        pytest.param("raw/articles/a.md, ", " ", id="separator-only-after-valid"),
+        pytest.param("raw/articles/b.md\x85", "raw/articles/b.md\x85", id="trailing-nel"),
+        pytest.param(" raw/articles/b.md", " raw/articles/b.md", id="leading-separator"),
+    ],
+)
+def test_create_page_refuses_an_entry_the_strip_would_shorten(
+    tmp_kb_env: Path, source_refs: str, bad: str
+) -> None:
+    """R3 F1: `strip()` removes NEL and U+2028 at an entry's ends, so the check runs
+    on each entry as given; `b.md` exists, so a stripped entry would cite it."""
+    _raw(tmp_kb_env, "a.md")
+    _raw(tmp_kb_env, "b.md")
+    before = _snapshot(tmp_kb_env)
+
+    result = _create(source_refs)
+
+    _assert_refused(result, bad)
+    assert _snapshot(tmp_kb_env) == before
+
+
+def test_create_page_still_strips_spaces_around_entries(tmp_kb_env: Path) -> None:
+    """Control for F1: ordinary spaces around entries are still stripped."""
+    first = _raw(tmp_kb_env, "a.md")
+    second = _raw(tmp_kb_env, "café.md")
+
+    result = _create(f" {first} , {second} ")
+
+    assert result.startswith("Created:")
+    page = tmp_kb_env / "wiki" / f"{_PAGE_ID}.md"
+    sources = frontmatter.loads(page.read_bytes().decode("utf-8")).metadata["source"]
+    assert sources == [first, second]
+
+
+@pytest.mark.parametrize(
     "name",
     [pytest.param("café.md", id="non-ascii"), pytest.param("b\t.md", id="tab", marks=_POSIX_ONLY)],
 )
