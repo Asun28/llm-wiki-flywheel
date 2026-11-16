@@ -1130,3 +1130,150 @@ def test_runner_on_the_demo_corpus_exits_0_with_invariant_i1(bench):
     )
     assert record["arms"]["templates"]["metrics"]["templates_total"] == len(templates)
     assert (bench.out / SAMPLE).is_file()
+
+
+# -- T1-KBEVAL-HTMLBLOCK: CommonMark HTML blocks stay prose (#157) [R1] [R2] [R3] ------
+# CommonMark 0.31.2 section 4.6. Lines inside an HTML block are kept text, so a fence,
+# heading or table line inside one changes nothing; the line after the block's end is
+# classified as after any other block.
+
+HTML_ONE = "First prose sentence has enough words to count here."
+HTML_TWO = "Second prose sentence has enough words to count too."
+# CommonMark example 161: a backtick fence line inside `<div>` is HTML block content.
+EXAMPLE_161 = f"<div>\n```\n</div>\n\n{HTML_ONE} {HTML_TWO}"
+# A fence opener and a `# ` line inside the block, then a fence after the block's end.
+INSIDE = "```\n# Kept heading line here."
+FENCE_AFTER = "```\nFenced line after the block is excluded.\n```\nAfter the block ends here."
+
+
+def sentence_texts(probe, body: str) -> list[list[str]]:
+    """The sentence texts of a page holding `body`, for LF and CRLF line ends."""
+    lf = page_text(body, ["raw/a.md"])
+    found = []
+    for text in (lf, lf.replace("\n", "\r\n")):
+        sentences = probe.page_sentences(text)
+        assert all(text[s["start"] : s["end"]] == s["text"] for s in sentences)
+        found.append([s["text"].replace("\r\n", "\n") for s in sentences])
+    return found
+
+
+def test_example_161_fence_line_inside_an_html_block_keeps_the_later_sentences(probe):
+    expected = [f"<div>\n```\n</div>\n\n{HTML_ONE}", HTML_TWO]
+
+    assert sentence_texts(probe, EXAMPLE_161) == [expected, expected]
+
+
+def test_example_161_page_gives_a_non_empty_label_sample(probe, tmp_path):
+    ctx = make_ctx(tmp_path)
+    write(ctx.raw / "src.md", f"{HTML_ONE} {HTML_TWO}")
+    write(ctx.wiki / "concepts" / "html.md", page_text(EXAMPLE_161, ["raw/src.md"]))
+
+    probe.run(ctx)
+
+    rows = sample_rows(ctx)
+    assert [row["text"] for row in rows] == [f"<div>\n```\n</div>\n\n{HTML_ONE}", HTML_TWO]
+
+
+HTML_TYPE_CASES = [
+    # Types 1-5 end on the line holding the end string; that line stays in the block.
+    ("type-1-pre", "<pre>", "</pre>"),
+    ("type-2-comment", "<!--", "-->"),
+    ("type-3-processing-instruction", "<?php", "?>"),
+    ("type-4-declaration", "<!DOCTYPE", ">"),
+    ("type-5-cdata", "<![CDATA[", "]]>"),
+    # Types 6-7 end at a blank line.
+    ("type-6-div", "<div>", ""),
+    ("type-7-complete-tag-alone", '<x-note class="a">', ""),
+]
+
+
+@pytest.mark.parametrize(
+    ("start", "end"), [c[1:] for c in HTML_TYPE_CASES], ids=[c[0] for c in HTML_TYPE_CASES]
+)
+def test_fence_and_heading_lines_inside_each_html_block_type_are_kept(probe, start, end):
+    body = f"{start}\n{INSIDE}\n{end}\n{FENCE_AFTER}"
+    expected = [f"{start}\n{INSIDE}"] + ([end] if end else []) + ["After the block ends here."]
+
+    assert sentence_texts(probe, body) == [expected, expected]
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (
+            'Paragraph line here.\n<x-note class="a">\n# x\nAfter the heading.',
+            ["Paragraph line here.", '<x-note class="a">', "After the heading."],
+        ),
+        (
+            "Paragraph line here.\n<div>\n# x\nAfter the heading.",
+            ["Paragraph line here.", "<div>\n# x\nAfter the heading."],
+        ),
+        (
+            "<div>\n| a | b |\n| --- | --- |\n| one. | two. |\n\nAfter the table.",
+            ["<div>\n| a | b |\n| --- | --- |\n| one.", "| two.", "|\n\nAfter the table."],
+        ),
+    ],
+    ids=[
+        "type-7-cannot-interrupt-a-paragraph",
+        "type-6-interrupts-a-paragraph",
+        "table-inside-a-type-6-block-is-kept",
+    ],
+)
+def test_html_block_start_after_a_paragraph_and_a_table_inside_one(probe, body, expected):
+    assert sentence_texts(probe, body) == [expected, expected]
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (
+            "> <pre>\n```\nFenced content line is excluded.\n```\nAfter the fence.",
+            ["> <pre>", "After the fence."],
+        ),
+        (
+            "- <div>\n  # x\n```\nFenced content line is excluded.\n```\nAfter the fence.",
+            ["- <div>\n  # x", "After the fence."],
+        ),
+    ],
+    ids=["ends-with-its-block-quote", "ends-with-its-list-item"],
+)
+def test_html_block_ends_with_its_container(probe, body, expected):
+    assert sentence_texts(probe, body) == [expected, expected]
+
+
+# -- T1-KBEVAL-HTMLBLOCK attempt 2: R3 decision 1 findings F1 and F2 [R1] [R2] [R3] ----
+
+
+@pytest.mark.parametrize("tag", ["</pre>", "</script>", "</style>", "</textarea>"])
+def test_closing_tag_of_a_type_1_name_alone_on_its_line_starts_a_type_7_block(probe, tag):
+    # Only an open tag of these names is excluded from type 7 (cmark, commonmark.js).
+    body = f"{tag}\n```\n\n{FENCE_AFTER}"
+    expected = [f"{tag}\n```", "After the block ends here."]
+
+    assert sentence_texts(probe, body) == [expected, expected]
+
+
+HTML_PROSE = "HTML prose sentence has enough words."
+LATER = "Later prose sentence has enough words to count."
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (
+            f"<div>\n## Evidence Trail\n{HTML_PROSE}\n\n{LATER}",
+            [f"<div>\n## Evidence Trail\n{HTML_PROSE}", LATER],
+        ),
+        (
+            f"<pre>\n## Evidence Trail\n{HTML_PROSE}\n</pre>\n{LATER}",
+            [f"<pre>\n## Evidence Trail\n{HTML_PROSE}", f"</pre>\n{LATER}"],
+        ),
+        (
+            f"<!--\n## Evidence Trail\n{HTML_PROSE}\n-->\n{LATER}",
+            [f"<!--\n## Evidence Trail\n{HTML_PROSE}", f"-->\n{LATER}"],
+        ),
+    ],
+    ids=["type-6-ends-at-blank-line", "type-1-explicit-end", "type-2-explicit-end"],
+)
+def test_evidence_trail_line_inside_an_html_block_starts_no_trail(probe, body, expected):
+    assert sentence_texts(probe, body) == [expected, expected]
