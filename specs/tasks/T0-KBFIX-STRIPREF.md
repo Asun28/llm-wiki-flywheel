@@ -1,7 +1,7 @@
 ---
 id: T0-KBFIX-STRIPREF
 title: "Ingest refuses a source path holding a character the frontmatter writer deletes (#183)"
-status: todo
+status: merged
 branch: T0-KBFIX-STRIPREF
 worktree: D:\wt\llm-wiki-flywheel\T0-KBFIX-STRIPREF
 allow_paths:
