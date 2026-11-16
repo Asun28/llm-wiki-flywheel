@@ -742,26 +742,28 @@ def _extract_entity_context(name: str, extraction: dict) -> str:
     Searches key_claims, core_argument, and abstract for mentions of the entity.
     Returns a brief description or empty string if nothing relevant found.
     """
-    name_lower = name.lower()
+    # #175 R7/R8: the name and every value are LF before they are searched or
+    # sanitized, so the search compares LF forms and `sanitize_extraction_field`
+    # removes a heading line a CR introduces exactly as one an LF introduces.
+    name_lower = _to_lf(name).lower()
     relevant = []
 
-    # #175 R7: search the LF form of each value (CR and LF are both non-word
-    # characters, so `\b` matches the same) and append the value unchanged.
     context_values = [
-        _coerce_str_field(extraction, field)
+        _to_lf(_coerce_str_field(extraction, field))
         for field in ("core_argument", "abstract", "description", "problem_solved")
     ]
     for val in context_values:
-        if val and bool(re.search(rf"\b{re.escape(name_lower)}\b", _to_lf(val.lower()))):
+        if val and bool(re.search(rf"\b{re.escape(name_lower)}\b", val.lower())):
             relevant.append(val)
             break
 
     key_claims = extraction.get("key_claims")
     key_points = extraction.get("key_points")
     for claim in key_claims if key_claims is not None else key_points or []:
-        if isinstance(claim, str) and bool(
-            re.search(rf"\b{re.escape(name_lower)}\b", _to_lf(claim.lower()))
-        ):
+        if not isinstance(claim, str):
+            continue
+        claim = _to_lf(claim)
+        if re.search(rf"\b{re.escape(name_lower)}\b", claim.lower()):
             relevant.append(claim)
 
     if not relevant:
