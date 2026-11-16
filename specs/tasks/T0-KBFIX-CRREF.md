@@ -53,3 +53,15 @@ ruff check src/ tests/ && python -m pytest tests/test_kbfix_source_ref_line_brea
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+
+Attempt 1. RED at 4368118: `test_ingest_refuses_a_reference_holding_a_line_break[lone-cr,crlf,lf]` 3 failed (`DID NOT RAISE <class 'ValueError'>`), `test_the_snapshot_sees_the_write_of_an_accepted_reference` passed, the 2 POSIX cases skipped (Windows). Diagnosis harness (not committed) on main abcdd4d: `raw/b\r.md` and `raw/b\r\n.md` round-trip through the frontmatter unchanged; the References line is written as `- Mentioned in raw/b` + `.md`; two `_update_sources_mapping` calls write one split entry and one duplicate.
+
+| Acceptance item | Proving test or command | Result |
+|---|---|---|
+| 1. patched lone-CR / CRLF / LF reference: `ValueError` matching `line break`, `repr` in the message, no CR or LF in it, sandbox snapshot unchanged | `test_ingest_refuses_a_reference_holding_a_line_break[lone-cr,crlf,lf]` | pass |
+| 2. POSIX real files `b\r.md`, `b\r\n.md`: same refusal, sandbox unchanged | `test_ingest_refuses_a_posix_file_name_holding_a_line_break[lone-cr,crlf]` | skipped on Windows; runs in CI (ubuntu-latest) |
+| 3. control: accepted reference adds a `wiki/summaries/` page to the snapshot | `test_the_snapshot_sees_the_write_of_an_accepted_reference` | pass |
+| 4. two comments in `_update_existing_page_body` | `git diff main -- src/kb/ingest/pipeline.py` | reviewer-verified |
+| 5. DoD green, no existing test edited, CHANGELOG / CHANGELOG-history entries, CLAUDE.md counts | DoD below; `git diff main --stat -- tests/` lists only the new file; `python scripts/verify_docs.py`: 3955 tests, 225 files, docs in sync | pass (reviewer-verified) |
