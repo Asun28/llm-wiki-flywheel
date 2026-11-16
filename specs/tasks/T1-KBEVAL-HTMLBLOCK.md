@@ -1,7 +1,7 @@
 ---
 id: T1-KBEVAL-HTMLBLOCK
 title: "The trace probe recognises CommonMark HTML blocks, so a fence, heading or table line inside one no longer changes how later lines are classified (#157)"
-status: todo
+status: merged
 branch: T1-KBEVAL-HTMLBLOCK
 worktree: D:\wt\llm-wiki-flywheel\T1-KBEVAL-HTMLBLOCK
 plan_ref: plans/kb-fixes-2.md#order-of-work
