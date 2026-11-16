@@ -18,8 +18,9 @@ that does not resolve inside `ctx.raw` by its path alone gets no file-system cal
 
 Readings of the card fixed here:
 - CommonMark block structure (GFM for tables) only recognises the blocks R3
-  removes: fenced code, heading lines and table rows; see `classify_lines`.
-  Everything else follows R3's text: the Evidence Trail bounds, the sentence ends
+  removes (fenced code, heading lines and table rows) and HTML blocks, whose lines
+  stay text but cannot open a fence or form a heading or table row (#157); see
+  `classify_lines`. Everything else follows R3's text: the Evidence Trail bounds, the sentence ends
   and the white-space strip. A kept line keeps its `>` or list marker as text.
 - A sentence includes its end mark.
 - Removed text ends the piece before it, so every sentence is one contiguous span
@@ -103,6 +104,43 @@ TRAIL_LINE = "## Evidence Trail"
 # digits as list-marker digits; the patterns above say so explicitly.
 SPACE_TAB = " \t"
 
+# CommonMark 0.31.2 section 4.6, HTML blocks: per type 1-7, in order, the start pattern
+# (matched at the line's first non-indent character) and the end pattern (searched in
+# the line; None means the block ends at a blank line). re.ASCII keeps re.IGNORECASE
+# from folding non-ASCII letters (the long s, the Kelvin sign) into tag names.
+HTML_BLOCK_NAMES = (
+    "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd"
+    "|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset"
+    "|h1|h2|h3|h4|h5|h6|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav"
+    "|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th"
+    "|thead|title|tr|track|ul"
+)
+HTML_RAW_NAMES = "pre|script|style|textarea"
+ATTRIBUTE = (
+    r"[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*"
+    r"""(?:[ \t]*=[ \t]*(?:[^ \t"'=<>`]+|'[^']*'|"[^"]*"))?"""
+)
+OPEN_TAG = rf"<[A-Za-z][A-Za-z0-9-]*(?:{ATTRIBUTE})*[ \t]*/?>"
+CLOSE_TAG = r"</[A-Za-z][A-Za-z0-9-]*[ \t]*>"
+HTML_BLOCKS = [
+    (
+        re.compile(rf"<(?:{HTML_RAW_NAMES})(?=[ \t>]|\Z)", re.IGNORECASE | re.ASCII),
+        re.compile(rf"</(?:{HTML_RAW_NAMES})>", re.IGNORECASE | re.ASCII),
+    ),
+    (re.compile(r"<!--"), re.compile(r"-->")),
+    (re.compile(r"<\?"), re.compile(r"\?>")),
+    (re.compile(r"<![A-Za-z]"), re.compile(r">")),
+    (re.compile(r"<!\[CDATA\["), re.compile(r"\]\]>")),
+    (re.compile(rf"</?(?:{HTML_BLOCK_NAMES})(?=[ \t]|/?>|\Z)", re.IGNORECASE | re.ASCII), None),
+    (
+        re.compile(
+            rf"(?!</?(?:{HTML_RAW_NAMES})(?![A-Za-z0-9-]))(?:{OPEN_TAG}|{CLOSE_TAG})[ \t]*\Z",
+            re.IGNORECASE | re.ASCII,
+        ),
+        None,
+    ),
+]
+
 
 def leading(s: str, pos: int, col: int, rem: int) -> tuple[int, int, int]:
     """Indent at a cursor in columns, and the position and column after it.
@@ -139,6 +177,19 @@ def fence_opener(after: str) -> tuple[str, int] | None:
     return match.group(1)[0], len(match.group(1))
 
 
+def html_start(after: str) -> int:
+    """The HTML block type (1-7) that `after` (indent removed) starts, or 0."""
+    for kind, (start, _) in enumerate(HTML_BLOCKS, 1):
+        if start.match(after):
+            return kind
+    return 0
+
+
+def html_interrupts(after: str) -> bool:
+    """Whether `after` starts an HTML block that may interrupt a paragraph (types 1-6)."""
+    return 0 < html_start(after) < 7
+
+
 def unescaped_pipes(row: str) -> int:
     return row.replace("\\|", "").count("|")
 
@@ -161,8 +212,10 @@ def classify_lines(lines: list[str]) -> list[bool]:
 
     CommonMark 0.31.2 block structure (GFM for tables) is used only to recognise the
     blocks R3 excludes: fenced code blocks, heading lines (ATX and setext) and table
-    rows. Blockquotes and list items are tracked as containers so those blocks are
-    found inside them too; tabs count by CommonMark's column rule. The Evidence Trail
+    rows. HTML blocks (section 4.6, all seven types) are recognised too: their lines
+    stay kept text, and while one is open no line in it opens a fence or forms a
+    heading or table. Blockquotes and list items are tracked as containers so these
+    blocks are found inside them too; tabs count by CommonMark's column rule. The Evidence Trail
     follows R3's text: from the line `## Evidence Trail` to the next `## ` ATX heading.
     """
     kept = [True] * len(lines)
@@ -204,6 +257,14 @@ def classify_lines(lines: list[str]) -> list[bool]:
                 continue
             leaf = None  # an unclosed fence ends with its container
 
+        if leaf is not None and leaf["kind"] == "html":
+            if all_matched:  # the line is HTML block content, kept as text
+                end = leaf["end"]
+                if is_blank(s[pos:]) if end is None else end.search(s[pos:]):
+                    leaf = None
+                continue
+            leaf = None  # an HTML block ends with its container
+
         para = leaf if leaf is not None and leaf["kind"] == "para" else None
         new: list[list] = []
         cursor = (pos, col, rem)
@@ -240,7 +301,10 @@ def classify_lines(lines: list[str]) -> list[bool]:
             width, q, _ = leading(s, pos, col, rem)
             after = s[q:]
             starts_block = width <= 3 and (
-                fence_opener(after) or ATX.match(after) or THEMATIC.match(after)
+                fence_opener(after)
+                or ATX.match(after)
+                or THEMATIC.match(after)
+                or html_interrupts(after)
             )
             if not starts_block:  # lazy continuation of the paragraph
                 para["lines"].append(i)
@@ -263,12 +327,25 @@ def classify_lines(lines: list[str]) -> list[bool]:
             continue
         if leaf is not None and leaf["kind"] == "table":
             # A row ends at a blank line, a block start or a line indented 4+ columns.
-            if width >= 4 or fence_opener(after) or ATX.match(after) or THEMATIC.match(after):
+            if (
+                width >= 4
+                or fence_opener(after)
+                or ATX.match(after)
+                or THEMATIC.match(after)
+                or html_interrupts(after)
+            ):
                 leaf = None
             else:
                 kept[i] = False
                 continue
         if width <= 3:
+            # An HTML block is checked first: its lines stay text and open no other block.
+            kind = html_start(after)
+            if kind and not (kind == 7 and para is not None):
+                end = HTML_BLOCKS[kind - 1][1]
+                ends_here = end is not None and end.search(after)
+                leaf = None if ends_here else {"kind": "html", "end": end}
+                continue
             fence = fence_opener(after)
             if fence:
                 leaf = {"kind": "fence", "char": fence[0], "length": fence[1]}

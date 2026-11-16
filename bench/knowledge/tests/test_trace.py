@@ -1178,7 +1178,7 @@ HTML_TYPE_CASES = [
     # Types 1-5 end on the line holding the end string; that line stays in the block.
     ("type-1-pre", "<pre>", "</pre>"),
     ("type-2-comment", "<!--", "-->"),
-    ("type-3-processing-instruction", "<?", "?>"),
+    ("type-3-processing-instruction", "<?php", "?>"),
     ("type-4-declaration", "<!DOCTYPE", ">"),
     ("type-5-cdata", "<![CDATA[", "]]>"),
     # Types 6-7 end at a blank line.
