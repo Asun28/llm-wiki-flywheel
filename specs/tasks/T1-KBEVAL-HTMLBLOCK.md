@@ -51,3 +51,36 @@ ruff check bench/knowledge && python -m pytest bench/knowledge/tests/test_trace.
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+
+Attempt 1, implementer, 2026-11-16. Base `origin/main` b07472d.
+
+Commits: b6142b2 (RED tests), 6791345 (fix and docstrings), 85fe3b1 (report notes and changelogs), and the commit adding this section.
+
+RED at b6142b2 (`python -m pytest bench/knowledge/tests/test_trace.py -q` against the unchanged probe): exit 1, 12 failed, 104 passed. Each failure is an assertion on the sentence list, for example `assert [] == ['<div>\n```\...o count too.']` (example 161 sample: empty) and `['<pre>', 'Fenced line after the block is excluded.'] != ['<pre>\n```\n# Kept heading line here.', '</pre>', 'After the block ends here.']`. Failing: both example 161 tests, all 7 type cases, `type-6-interrupts-a-paragraph`, `table-inside-a-type-6-block-is-kept`, `ends-with-its-list-item`. Passing at RED by design (guards against over-recognition): `type-7-cannot-interrupt-a-paragraph`, `ends-with-its-block-quote`. One correction in 6791345: the type 3 case starts with `<?php`, not `<?`, because a bare `<?` line ends in `?` before a line end and R3's sentence rule cuts it there (the probe's lines were right, the test's expected list was not); rechecked RED for that case on the base probe: fails on the fence assertion.
+
+DoD (`ruff check bench/knowledge && python -m pytest bench/knowledge/tests/test_trace.py bench/knowledge/tests/test_baseline.py -q`, main checkout `.venv`): exit 0; `All checks passed!`, `147 passed`. Output sha256 32c0cc748737ca5eff028b6e9089b6c777a7317b8a09173af3a734bd20626197.
+
+`python -m pytest bench/knowledge/tests -q`: 388 passed, 4 skipped.
+
+`git diff --numstat origin/main...HEAD` before this section:
+
+```
+10	0	CHANGELOG-history.md
+1	0	CHANGELOG.md
+83	6	bench/knowledge/probes/trace.py
+109	0	bench/knowledge/tests/test_trace.py
+2	2	docs/knowledge-baseline.md
+```
+
+| Acceptance | Evidence |
+|---|---|
+| 1 | `test_example_161_fence_line_inside_an_html_block_keeps_the_later_sentences`, `test_example_161_page_gives_a_non_empty_label_sample`: both failed at RED, pass at HEAD. |
+| 2 | `test_fence_and_heading_lines_inside_each_html_block_type_are_kept[type-1..7]`: 7 cases, LF and CRLF. |
+| 3 | `test_html_block_start_after_a_paragraph_and_a_table_inside_one`: 3 cases. |
+| 4 | `test_html_block_ends_with_its_container`: block quote and list item cases. |
+| 5 | DoD green; `git diff origin/main...HEAD -- bench/knowledge/tests/test_trace.py` removes no line; `test_every_number_in_the_report_comes_from_summary_or_labels` passes. |
+| 6 | Report lines 23 and 222 carry the note dated `2026-11-16` with the card id; module docstring of `trace.py` names HTML blocks; numstat of `summary.json` and `labels.jsonl` is empty; one entry each in `CHANGELOG.md` and `CHANGELOG-history.md`. |
+
+Differential (self-check, not DoD; script `diff_html.py` in the session scratchpad, not the repo): `classify_lines` against markdown-it-py 4.0 (`commonmark` + `table`) on random documents of HTML, fence, heading, table and container lines. markdown-it-py's type 4 accepts only uppercase letters and its type 7 does not exclude `pre`, `script`, `style`, `textarea`; the run patched both to the spec text. Mismatches per 20,000 documents: seeds 1-3 give 19, 18, 22 at HEAD against 3883, 3949, 3935 for the base probe; seeds 4-5 with a larger vocabulary give 8 and 12. Every remaining mismatch was traced to one of three markdown-it-py behaviours outside CommonMark, each present with the base probe too: its table rule runs before list items (`- a | b` then a delimiter is a table), it accepts a `>` continuation marker indented 4 columns, and it reads a lazy line indented 4 columns inside a nested block quote as indented code.
