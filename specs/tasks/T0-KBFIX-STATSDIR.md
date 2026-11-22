@@ -51,3 +51,14 @@ ruff check src/ tests/ && python -m pytest tests/test_kbfix_stats_default_wiki_d
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+
+Attempt 1. RED at ef1ef30: `test_kb_stats_without_wiki_dir_reports_the_default_wiki`, `test_kb_stats_without_wiki_dir_matches_the_explicit_default` and `test_cli_stats_without_wiki_dir_exits_zero` 3 failed (`AttributeError: 'NoneType' object has no attribute 'resolve'` from `kb/graph/cache.py:129`).
+
+| Acceptance item | Proving test or command | Result |
+|---|---|---|
+| 1. `kb_stats()` with no argument, no patch on `get_graph`: statistics for the one-page sandbox wiki | `test_kb_stats_without_wiki_dir_reports_the_default_wiki` | pass |
+| 2. `kb_stats()` equals `kb_stats(wiki_dir=<sandbox wiki>)` | `test_kb_stats_without_wiki_dir_matches_the_explicit_default` | pass |
+| 3. `kb stats` exits 0 with the statistics | `test_cli_stats_without_wiki_dir_exits_zero` | pass |
+| 4. DoD green, no existing test edited, CHANGELOG / CHANGELOG-history entries, CLAUDE.md counts | DoD below; `git diff main --stat -- tests/` lists only the new file; `python scripts/verify_docs.py`: 3988 tests, 228 files, docs in sync | pass (reviewer-verified) |

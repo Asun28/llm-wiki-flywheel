@@ -368,6 +368,10 @@ def kb_stats(wiki_dir: str | None = None) -> str:
         wiki_path, err = _validate_wiki_dir(wiki_dir, project_root=PROJECT_ROOT)
         if err:
             return f"Error: {err}"
+        # #187: `get_graph` builds its cache key from `wiki_dir.resolve()`, so resolve
+        # the default here and give coverage and graph the same directory.
+        if wiki_path is None:
+            wiki_path = WIKI_DIR
 
         coverage = analyze_coverage(wiki_dir=wiki_path)
         graph = kb.graph.cache.get_graph(wiki_path)
