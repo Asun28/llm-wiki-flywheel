@@ -66,3 +66,63 @@ ruff check src/ tests/ && python -m pytest tests/test_kbfix_query_citation_conte
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+
+Attempt 1. RED on the unfixed code: `test_only_in_context_citations_are_returned` (citations held `concepts/tokenizer` and `concepts/missing-page`), `test_citation_id_comparison_ignores_case`, `test_raw_citation_accepted_only_when_it_entered_the_prompt` and `test_no_match_path_has_empty_rejected_citations` (`KeyError: 'rejected_citations'`): 4 failed.
+
+| Acceptance item | Proving test or command | Result |
+|---|---|---|
+| 1. in-context kept, out-of-context and nonexistent rejected with reasons, answer unchanged | `test_only_in_context_citations_are_returned` | pass |
+| 2. upper-case id of the in-context page accepted | `test_citation_id_comparison_ignores_case` | pass |
+| 3. raw citation accepted only when it entered the prompt | `test_raw_citation_accepted_only_when_it_entered_the_prompt` | pass |
+| 4. no-match path: `rejected_citations == []` | `test_no_match_path_has_empty_rejected_citations` | pass |
+| 5. bench probe | `python bench/knowledge/run.py --probe citations`: `returned_in-context=6 returned_nonexistent=0 returned_out-of-context=0 returned_traversal=0` | pass (reviewer-verified) |
+| 6. DoD green, no existing test edited, CHANGELOG / CHANGELOG-history entries, CLAUDE.md counts | DoD below; `git diff main --stat -- tests/` lists only the new file; `python scripts/verify_docs.py`: docs in sync (4005 tests, 230 files) | pass (reviewer-verified) |
+
+Attempt 2 (R3 decision 1 repair, 3 findings). RED on the blocked candidate 28b9dbb with the new tests copied in: `test_raw_form_citation_of_a_wiki_page_is_not_accepted`, `test_truncated_raw_section_counts_only_with_header_and_content[one-char]`, `[header-only]` and `test_upper_case_raw_prefix_is_probed_under_the_raw_dir` 4 failed; `[header-plus-content]` passed (control).
+
+| R3 finding | Proving test | Result |
+|---|---|---|
+| F1 wiki/raw allowance shared | `test_raw_form_citation_of_a_wiki_page_is_not_accepted` | pass |
+| F2 truncated raw section counted | `test_truncated_raw_section_counts_only_with_header_and_content` (one-char, header-only, header-plus-content) | pass |
+| F3 `RAW/` prefix probe | `test_upper_case_raw_prefix_is_probed_under_the_raw_dir` | pass |
+
+Input forms and paths the repair hunks handle:
+
+| Hunk | Input form or path | Test |
+|---|---|---|
+| `partition_citations` per-type sets | wiki citation of an in-context page | `test_only_in_context_citations_are_returned` |
+| | raw-form `[ref: <wiki id>]` citation, same id in `context_pages` | `test_raw_form_citation_of_a_wiki_page_is_not_accepted` |
+| | raw citation of a raw id in the prompt | `test_raw_citation_accepted_only_when_it_entered_the_prompt` |
+| | upper-case wiki id | `test_citation_id_comparison_ignores_case` |
+| raw prefix match | `raw/...` (lower-case) existing, out of prompt | `test_raw_citation_accepted_only_when_it_entered_the_prompt` |
+| | `RAW/...` existing, out of prompt | `test_upper_case_raw_prefix_is_probed_under_the_raw_dir` |
+| | raw-type path with no `raw/` prefix (`concepts/hydration`) | `test_raw_form_citation_of_a_wiki_page_is_not_accepted` (`nonexistent`) |
+| truncated raw section | budget 1 char (header cut) | `[one-char]` |
+| | budget = header length exactly | `[header-only]` |
+| | header + 10 chars of content | `[header-plus-content]` |
+| | section fits whole | `test_raw_citation_accepted_only_when_it_entered_the_prompt` |
+
+Same class elsewhere: `_build_query_context` already records a truncated wiki page only when `remaining > header_len` (`engine.py:784`) and returns no page when `effective_max <= len(header)` (`engine.py:840`).
+
+Attempt 3 (R3 decision 2 repair, 3 findings). RED on the blocked candidate 34a0a96 with the new tests copied in: `test_wiki_reason_finds_a_mixed_case_file_name`, `test_raw_reason_ignores_case_beyond_the_prefix`, `test_stat_error_on_a_cited_name_rejects_it_and_keeps_the_answer` 3 failed. (A first version patched `Path.exists`, which the old `is_file()` probe never calls, and passed on the old code; the tests now patch `Path.stat`, which `exists`, `is_file` and `is_dir` all call.)
+
+| R3 finding | Proving test | Result |
+|---|---|---|
+| F1 wiki file name differs in case from the id | `test_wiki_reason_finds_a_mixed_case_file_name` | pass |
+| F2 raw path differs in case beyond the prefix | `test_raw_reason_ignores_case_beyond_the_prefix` | pass |
+| F3 `OSError` from the probe aborts the query | `test_stat_error_on_a_cited_name_rejects_it_and_keeps_the_answer` | pass |
+| fixture emulates a case-sensitive filesystem | `test_case_sensitive_stat_fixture_hides_a_case_variant` | pass |
+
+Input forms and paths of `_is_file_ignoring_case`: exact-case segment exists (all earlier tests); segment differs in case, found by listing (F1 wiki, F2 raw directory and file segments); no segment matches (`raw/articles/absent.md` -> `nonexistent`, F2 test); parent is not a directory (`concepts/missing-page` -> listing finds nothing, `test_only_in_context_citations_are_returned`); `OSError` from `stat` (F3 test). An `OSError` from `iterdir` is caught by the same `except` (not separately tested).
+
+Attempt 4 (R3 decision 3 repair, 1 finding). The case-insensitive segment walk is removed, not patched: the reason is a lookup of the lower-cased citation path in `_lower_relative_files(base)`, the lower-cased relative paths of the files under the wiki or raw directory. No model-written path is passed to `stat`.
+
+RED/GREEN on a real case-sensitive filesystem (WSL Ubuntu, ext4 `/tmp`, Python 3.12, `citations.py` loaded by path with `python3 -I`): blocked candidate 15c5cac: `raw sibling case dirs` and `raw case beyond prefix` FAIL (`nonexistent`); repair: all 5 cases PASS (wiki mixed-case file, raw sibling case dirs, raw case beyond prefix -> `out_of_context`; raw missing, real 300-character name -> `nonexistent`).
+
+| R3 finding | Proving test | Result |
+|---|---|---|
+| F1 sibling directories differing in case | `test_raw_reason_checks_every_case_variant_directory` (skipped on Windows, runs on Linux CI) and the WSL check above | pass (WSL), skip (Windows) |
+
+Input forms and paths of `_lower_relative_files`: file name differs in case at the last segment (`test_wiki_reason_finds_a_mixed_case_file_name`), at directory and file segments (`test_raw_reason_ignores_case_beyond_the_prefix`), sibling directories differing in case (decision-3 test, WSL); file absent (`raw/articles/absent.md`, `concepts/missing-page`); model-written 300-character name, never stat'd (`test_stat_error_on_a_cited_name_rejects_it_and_keeps_the_answer`, WSL real `ENAMETOOLONG`); `OSError` while listing returns the files seen so far (not separately tested).

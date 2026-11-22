@@ -2,6 +2,7 @@
 
 import html as _html
 import re
+from pathlib import Path
 
 # Matches both legacy `[source: X]` / `[ref: X]` and canonical `[[X]]` formats.
 # Cycle 5 redo T1: prompt at engine.py instructs the new wikilink form; the
@@ -61,6 +62,80 @@ def extract_citations(text: str) -> list[dict]:
             }
         )
     return citations
+
+
+def partition_citations(
+    citations: list[dict],
+    *,
+    wiki_ids: set[str] | list[str],
+    raw_ids: set[str] | list[str],
+    wiki_dir: Path,
+    raw_dir: Path,
+) -> tuple[list[dict], list[dict]]:
+    """Split extracted citations into those that were in the prompt and the rest.
+
+    T0-KBFIX-CITECTX (#189): a ``wiki`` citation is accepted only when its path,
+    compared case-insensitively, is one of ``wiki_ids`` (``context_pages``); a
+    ``raw`` citation only when it is one of ``raw_ids`` (the raw ids the raw-source
+    fallback put in the prompt). The two sets are checked per type, so a
+    ``[ref: <wiki id>]`` citation does not pass on a wiki page's allowance.
+    Each other citation is returned with ``reason``: ``"out_of_context"`` when the
+    page or raw file exists, ``"nonexistent"`` when it does not. Existence is a
+    case-insensitive lookup in the list of files under ``wiki_dir`` / ``raw_dir``
+    (see ``_lower_relative_files``); no model-written path is passed to ``stat``.
+
+    Returns:
+        ``(accepted, rejected)``. Accepted entries are the input dicts unchanged;
+        rejected entries are copies with an added ``reason`` key.
+    """
+    allowed = {
+        "wiki": {pid.lower() for pid in wiki_ids},
+        "raw": {rid.lower() for rid in raw_ids},
+    }
+    accepted: list[dict] = []
+    rejected: list[dict] = []
+    # Lower-cased relative paths of the files under each directory, listed at most
+    # once per call and only when a citation is rejected.
+    known: dict[str, set[str]] = {}
+    for cite in citations:
+        path = cite["path"]
+        if path.lower() in allowed.get(cite["type"], set()):
+            accepted.append(cite)
+            continue
+        if cite["type"] == "raw":
+            # The raw/ prefix is matched case-insensitively, as the id comparison is.
+            relative = path[len("raw/") :] if path.lower().startswith("raw/") else path
+            if "raw" not in known:
+                known["raw"] = _lower_relative_files(raw_dir)
+            exists = relative.lower() in known["raw"]
+        else:
+            if "wiki" not in known:
+                known["wiki"] = _lower_relative_files(wiki_dir)
+            exists = f"{path}.md".lower() in known["wiki"]
+        reason = "out_of_context" if exists else "nonexistent"
+        rejected.append({**cite, "reason": reason})
+    return accepted, rejected
+
+
+def _lower_relative_files(base: Path) -> set[str]:
+    """Lower-cased POSIX paths, relative to ``base``, of every file under ``base``.
+
+    Ids are compared lower-cased (``page_id`` lower-cases the file path), so the
+    reason lookup compares a citation against this set rather than stat-ing a
+    model-written path: a file name that differs from the id in case, at any
+    segment, is still found on a case-sensitive filesystem, and no model-written
+    name reaches the filesystem (no ``ENAMETOOLONG``). Symlinked directories are
+    not followed (``Path.rglob`` default). An ``OSError`` while listing returns
+    the files seen so far: a citation's reason must never abort the query.
+    """
+    found: set[str] = set()
+    try:
+        for entry in base.rglob("*"):
+            if entry.is_file():
+                found.add(entry.relative_to(base).as_posix().lower())
+    except OSError:
+        pass
+    return found
 
 
 def format_citations(citations: list[dict], mode: str = "markdown") -> str:
