@@ -17,6 +17,18 @@ Purpose: Full per-cycle bullet-level detail archive. CHANGELOG.md is the compact
 
 > Detailed per-cycle entries live here. High-level summaries remain in [CHANGELOG.md](CHANGELOG.md); full bullet-level detail belongs here.
 
+### 2026-11-23 — T0-KBFIX-STATSDIR (`kb_stats` and `kb stats` use the default wiki directory when none is given, #187)
+
+**Card:** T0-KBFIX-STATSDIR (goal g-20261122213104-19eef3, T0-bugfix). Filed from the NVIDIA/auto-ontology comparison review (2026-11-22).
+
+**Theme:** `kb_stats` passed the result of `_validate_wiki_dir(wiki_dir)` to `analyze_coverage` and `kb.graph.cache.get_graph`. For `wiki_dir=None` that result is `None`; `analyze_coverage` falls back to its own `WIKI_DIR`, but `get_graph` builds its cache key with `wiki_dir.resolve()` and raised `AttributeError`. The `kb stats` CLI calls `kb_stats(wiki_dir=None)` and exited 1. Reproduced on main 5906574 with a one-page temp wiki. Introduced by ad17c03 (cycle 68), which routed the call through the graph cache; the existing no-argument tests patched `get_graph` or made `analyze_coverage` raise first.
+
+- **`src/kb/mcp/browse.py`.** After validation, `kb_stats` sets the wiki path to the module-level `WIKI_DIR` (the name `kb_read_page` and `kb_list_pages` already use, rebound by the test sandbox) when it is `None`, and passes that one path to both `analyze_coverage` and `get_graph`.
+- **Tests.** `tests/test_kbfix_stats_default_wiki_dir.py` (new, 3 tests, every call inside `tmp_kb_env`, no patch on `get_graph`): `kb_stats()` with no argument returns the statistics for a one-page wiki; it equals `kb_stats(wiki_dir=<sandbox wiki>)`; `kb stats` exits 0 with the statistics. RED at ef1ef30: 3 failed with the `AttributeError`.
+- **Sweep:** every other `get_graph` caller (`evolve/analyzer.py`, `graph/export.py`, `lint/augment/collector.py`, `lint/checks/cycles.py`, `lint/checks/orphan.py`, `lint/runner.py`) resolves `wiki_dir or WIKI_DIR` first; `lint/semantic.py` passes `pages=`, which bypasses the cache key.
+- **Not changed:** `get_graph`, `_validate_wiki_dir`, `analyze_coverage`. #188 (`query_wiki` passes `None` to `load_purpose`) is the same class and has its own issue.
+- **Tests:** 3985 → 3988 (+3).
+
 ### 2026-11-17 — T0-KBFIX-CREATEREF (`kb_create_page` refuses a `source_refs` entry holding a character the frontmatter writer deletes, #185)
 
 **Card:** T0-KBFIX-CREATEREF (goal g-20261116221610-cebfcc, T0-bugfix). Follow-up filed by T0-KBFIX-STRIPREF.
