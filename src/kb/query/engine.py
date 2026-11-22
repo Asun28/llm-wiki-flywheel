@@ -1075,7 +1075,8 @@ def _query_wiki_body(
             # max(0, ...) ensures negative budget short-circuits to skip.
             budget = max(0, QUERY_CONTEXT_MAX_CHARS - len(ctx["context"]) - _FENCE_OVERHEAD)
             for rs in raw_results:
-                section = f"--- Raw Source: {rs['id']} (verbatim) ---\n{rs['content']}\n"
+                header = f"--- Raw Source: {rs['id']} (verbatim) ---\n"
+                section = f"{header}{rs['content']}\n"
                 if len(section) > budget:
                     # R1 Sonnet PR #98 M2 deeper fix — only truncate-and-keep
                     # the first section when budget > 0. With budget=0 (post
@@ -1085,7 +1086,10 @@ def _query_wiki_body(
                     # the already-full ctx + FENCE_OVERHEAD.
                     if not raw_sections and budget > 0:
                         raw_sections.append(section[:budget])
-                        raw_prompt_ids.append(rs["id"])
+                        # The id counts as in the prompt only when the kept slice
+                        # holds the whole header and some source content (R3 F2).
+                        if budget > len(header):
+                            raw_prompt_ids.append(rs["id"])
                     break
                 raw_sections.append(section)
                 raw_prompt_ids.append(rs["id"])
@@ -1167,7 +1171,8 @@ INSTRUCTIONS:
 
     citations, rejected_citations = partition_citations(
         extract_citations(answer),
-        [*ctx["context_pages"], *raw_prompt_ids],
+        wiki_ids=ctx["context_pages"],
+        raw_ids=raw_prompt_ids,
         wiki_dir=wiki_dir if wiki_dir is not None else WIKI_DIR,
         raw_dir=effective_raw_dir if effective_raw_dir is not None else RAW_DIR,
     )

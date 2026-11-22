@@ -143,3 +143,93 @@ def test_no_match_path_has_empty_rejected_citations(model, tmp_kb_env):
     assert result["citations"] == []
     assert result["rejected_citations"] == []
     assert model.prompts == []
+
+
+# -- R3 decision 1 regressions --------------------------------------------------------
+
+
+@pytest.fixture
+def summary_wiki_with_raw(tmp_kb_env: Path) -> Path:
+    """A summary-only wiki, so the raw fallback fires, and two raw articles."""
+    wiki = tmp_kb_env / "wiki"
+    (wiki / "summaries").mkdir(parents=True, exist_ok=True)
+    (wiki / "summaries" / "hydration-summary.md").write_bytes(
+        _page("Hydration summary", "Summary of hydration in rendering.", page_type="summary")
+    )
+    articles = tmp_kb_env / "raw" / "articles"
+    articles.mkdir(parents=True, exist_ok=True)
+    (articles / "hydration.md").write_bytes(b"# Hydration\nHydration attaches state to HTML.\n")
+    (articles / "tokenizer.md").write_bytes(b"# Tokenizer\nA tokenizer splits text.\n")
+    return wiki
+
+
+def test_raw_form_citation_of_a_wiki_page_is_not_accepted(model, concept_wiki):
+    """R3 F1: `[ref: <wiki id>]` is a raw citation and must not pass on the wiki allowance."""
+    from kb.query.engine import query_wiki
+
+    model.answer = "Hydration [[concepts/hydration]] and [ref: concepts/hydration]."
+    result = query_wiki("What is hydration?")
+
+    assert result["context_pages"] == ["concepts/hydration"]
+    assert [(c["type"], c["path"]) for c in result["citations"]] == [("wiki", "concepts/hydration")]
+    assert [(c["type"], c["path"], c["reason"]) for c in result["rejected_citations"]] == [
+        ("raw", "concepts/hydration", "nonexistent")
+    ]
+
+
+@pytest.mark.parametrize(
+    ("extra", "accepted"),
+    [
+        pytest.param(
+            1 - len("--- Raw Source: raw/articles/hydration.md (verbatim) ---\n"),
+            False,
+            id="one-char",
+        ),
+        pytest.param(0, False, id="header-only"),
+        pytest.param(10, True, id="header-plus-content"),
+    ],
+)
+def test_truncated_raw_section_counts_only_with_header_and_content(
+    model, summary_wiki_with_raw, monkeypatch, extra, accepted
+):
+    """R3 F2: a raw id counts as in the prompt only when its header and some content fit."""
+    from kb.query import engine
+
+    header_len = len("--- Raw Source: raw/articles/hydration.md (verbatim) ---\n")
+    budget = header_len + extra
+    real_build = engine._build_query_context
+
+    def _padded(pages, max_chars=engine.QUERY_CONTEXT_MAX_CHARS):
+        ctx = real_build(pages, max_chars=max_chars)
+        fill = (
+            engine.QUERY_CONTEXT_MAX_CHARS - engine._FENCE_OVERHEAD - budget - len(ctx["context"])
+        )
+        ctx["context"] += "x" * fill
+        return ctx
+
+    monkeypatch.setattr(engine, "_build_query_context", _padded)
+    model.answer = "Hydration attaches state [ref: raw/articles/hydration.md]."
+    result = engine.query_wiki("What is hydration?")
+
+    assert result["context_pages"] == ["summaries/hydration-summary"]
+    if accepted:
+        assert _paths(result["citations"]) == ["raw/articles/hydration.md"]
+        assert result["rejected_citations"] == []
+    else:
+        assert result["citations"] == []
+        assert [(c["path"], c["reason"]) for c in result["rejected_citations"]] == [
+            ("raw/articles/hydration.md", "out_of_context")
+        ]
+
+
+def test_upper_case_raw_prefix_is_probed_under_the_raw_dir(model, summary_wiki_with_raw):
+    """R3 F3: `RAW/...` names an existing raw file, so the reason is out_of_context."""
+    from kb.query.engine import query_wiki
+
+    model.answer = "Unrelated [ref: RAW/articles/tokenizer.md]."
+    result = query_wiki("What is hydration?")
+
+    assert result["citations"] == []
+    assert [(c["type"], c["path"], c["reason"]) for c in result["rejected_citations"]] == [
+        ("raw", "RAW/articles/tokenizer.md", "out_of_context")
+    ]

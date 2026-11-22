@@ -78,4 +78,12 @@ Attempt 1. RED on the unfixed code: `test_only_in_context_citations_are_returned
 | 3. raw citation accepted only when it entered the prompt | `test_raw_citation_accepted_only_when_it_entered_the_prompt` | pass |
 | 4. no-match path: `rejected_citations == []` | `test_no_match_path_has_empty_rejected_citations` | pass |
 | 5. bench probe | `python bench/knowledge/run.py --probe citations`: `returned_in-context=6 returned_nonexistent=0 returned_out-of-context=0 returned_traversal=0` | pass (reviewer-verified) |
-| 6. DoD green, no existing test edited, CHANGELOG / CHANGELOG-history entries, CLAUDE.md counts | DoD below; `git diff main --stat -- tests/` lists only the new file; `python scripts/verify_docs.py`: docs in sync (3995 tests, 230 files) | pass (reviewer-verified) |
+| 6. DoD green, no existing test edited, CHANGELOG / CHANGELOG-history entries, CLAUDE.md counts | DoD below; `git diff main --stat -- tests/` lists only the new file; `python scripts/verify_docs.py`: docs in sync (4000 tests, 230 files) | pass (reviewer-verified) |
+
+Attempt 2 (R3 decision 1 repair, 3 findings). RED on the blocked candidate 28b9dbb with the new tests copied in: `test_raw_form_citation_of_a_wiki_page_is_not_accepted`, `test_truncated_raw_section_counts_only_with_header_and_content[one-char]`, `[header-only]` and `test_upper_case_raw_prefix_is_probed_under_the_raw_dir` 4 failed; `[header-plus-content]` passed (control).
+
+| R3 finding | Proving test | Result |
+|---|---|---|
+| F1 wiki/raw allowance shared | `test_raw_form_citation_of_a_wiki_page_is_not_accepted` | pass |
+| F2 truncated raw section counted | `test_truncated_raw_section_counts_only_with_header_and_content` (one-char, header-only, header-plus-content) | pass |
+| F3 `RAW/` prefix probe | `test_upper_case_raw_prefix_is_probed_under_the_raw_dir` | pass |

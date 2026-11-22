@@ -66,16 +66,19 @@ def extract_citations(text: str) -> list[dict]:
 
 def partition_citations(
     citations: list[dict],
-    prompt_ids: set[str] | list[str],
     *,
+    wiki_ids: set[str] | list[str],
+    raw_ids: set[str] | list[str],
     wiki_dir: Path,
     raw_dir: Path,
 ) -> tuple[list[dict], list[dict]]:
     """Split extracted citations into those that were in the prompt and the rest.
 
-    T0-KBFIX-CITECTX (#189): a citation is accepted only when its path, compared
-    case-insensitively, is one of ``prompt_ids`` (the wiki page ids in
-    ``context_pages`` plus the raw ids the raw-source fallback put in the prompt).
+    T0-KBFIX-CITECTX (#189): a ``wiki`` citation is accepted only when its path,
+    compared case-insensitively, is one of ``wiki_ids`` (``context_pages``); a
+    ``raw`` citation only when it is one of ``raw_ids`` (the raw ids the raw-source
+    fallback put in the prompt). The two sets are checked per type, so a
+    ``[ref: <wiki id>]`` citation does not pass on a wiki page's allowance.
     Each other citation is returned with ``reason``: ``"out_of_context"`` when the
     page or raw file exists, ``"nonexistent"`` when it does not. The existence
     probe only ever sees paths that passed ``extract_citations``' shape filter
@@ -86,16 +89,21 @@ def partition_citations(
         ``(accepted, rejected)``. Accepted entries are the input dicts unchanged;
         rejected entries are copies with an added ``reason`` key.
     """
-    allowed = {pid.lower() for pid in prompt_ids}
+    allowed = {
+        "wiki": {pid.lower() for pid in wiki_ids},
+        "raw": {rid.lower() for rid in raw_ids},
+    }
     accepted: list[dict] = []
     rejected: list[dict] = []
     for cite in citations:
         path = cite["path"]
-        if path.lower() in allowed:
+        if path.lower() in allowed.get(cite["type"], set()):
             accepted.append(cite)
             continue
         if cite["type"] == "raw":
-            target = raw_dir / path.removeprefix("raw/")
+            # The raw/ prefix is matched case-insensitively, as the id comparison is.
+            relative = path[len("raw/") :] if path.lower().startswith("raw/") else path
+            target = raw_dir / relative
         else:
             target = wiki_dir / f"{path}.md"
         reason = "out_of_context" if target.is_file() else "nonexistent"
