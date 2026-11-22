@@ -1,7 +1,7 @@
 ---
 id: T0-KBFIX-STATSDIR
 title: "kb_stats and kb stats use the default wiki directory when wiki_dir is omitted (#187)"
-status: todo
+status: merged
 branch: T0-KBFIX-STATSDIR
 worktree: D:\wt\llm-wiki-flywheel\T0-KBFIX-STATSDIR
 allow_paths:
