@@ -1,7 +1,7 @@
 ---
 id: T0-KBFIX-CITECTX
 title: "query_wiki returns only citations to pages and raw files that were in the prompt context (#189)"
-status: todo
+status: merged
 branch: T0-KBFIX-CITECTX
 worktree: D:\wt\llm-wiki-flywheel\T0-KBFIX-CITECTX
 allow_paths:
