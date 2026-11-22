@@ -17,6 +17,21 @@ Purpose: Full per-cycle bullet-level detail archive. CHANGELOG.md is the compact
 
 > Detailed per-cycle entries live here. High-level summaries remain in [CHANGELOG.md](CHANGELOG.md); full bullet-level detail belongs here.
 
+### 2026-11-23 — T0-KBFIX-CITECTX (`query_wiki` returns only citations that were in the prompt, #189)
+
+**Card:** T0-KBFIX-CITECTX (goal g-20261122224510-b2b799, T0). Filed from the NVIDIA/auto-ontology comparison review (2026-11-22).
+
+**Theme:** `query_wiki` set `citations = extract_citations(answer)` and returned it as is. `extract_citations` filters path shape only (`..`, leading `/`, empty or dot-leading segments), so a page outside the prompt context, or a page that does not exist, was returned as a citation. The ids in the prompt (`context_pages` and the raw-fallback sections) were used only for `stale_citations`. Bench probe `citations` on main a179025: 12/12 out-of-context and 12/12 nonexistent citations returned.
+
+**Owner decisions (2026-11-23):** rejected citations go under a separate key with a reason; the answer text is left unchanged; a raw citation is accepted only when that raw file entered the prompt; default MCP mode is out of scope.
+
+- **`src/kb/query/citations.py`.** New `partition_citations(citations, prompt_ids, *, wiki_dir, raw_dir)` returns `(accepted, rejected)`. Ids are compared with `str.lower()` on both sides (`page_id` already lower-cases `context_pages`). A rejected entry is a copy with `reason`: `out_of_context` when `wiki_dir/<id>.md` (wiki) or `raw_dir/<path without raw/>` (raw) is a file, else `nonexistent`. The existence check only sees paths that passed `extract_citations`' shape filter. `extract_citations` is unchanged.
+- **`src/kb/query/engine.py`.** The raw-fallback loop records each raw id whose section (or truncated first section) entered the prompt. After the model call, citations are partitioned against `context_pages` plus those raw ids, with the wiki directory defaulting to `WIKI_DIR` and the raw directory to `kb.config.RAW_DIR` read at call time. `rejected_citations` is returned on every path, `[]` on the no-match path. The docstring documents the key.
+- **Tests.** `tests/test_kbfix_query_citation_context.py` (new, 4 tests, every call inside `tmp_kb_env`, only `kb.query.engine.call_llm` stubbed): in-context citation kept, an existing out-of-context page and a missing page rejected with their reasons, answer unchanged; an upper-case citation of the in-context page accepted; a raw citation of the file that entered the prompt accepted and one of a raw file outside the prompt rejected as `out_of_context`; the no-match path returns `rejected_citations == []`. RED: 4 failed (out-of-context citation returned; no `rejected_citations` key).
+- **Bench:** `python bench/knowledge/run.py --probe citations` on the candidate: `returned_in-context` 6, `returned_out-of-context` 0, `returned_nonexistent` 0, `returned_traversal` 0, `citation_keys_uniform` 1. The committed baseline `bench/knowledge/summary.json` is not updated here.
+- **Not changed:** `extract_citations`; the answer text; CLI and MCP output (they do not show `rejected_citations`); default MCP mode (`kb_query` without `use_api`), where no answer passes through `query_wiki` (follow-up issue).
+- **Tests:** 3991 → 3995 (+4).
+
 ### 2026-11-23 — T0-KBFIX-QUERYDIR (`kb query` and `kb_query(use_api=true)` use the default wiki directory when none is given, #188)
 
 **Card:** T0-KBFIX-QUERYDIR (goal g-20261122222128-02ec13, T0-bugfix). Filed from the NVIDIA/auto-ontology comparison review (2026-11-22).

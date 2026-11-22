@@ -66,3 +66,16 @@ ruff check src/ tests/ && python -m pytest tests/test_kbfix_query_citation_conte
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+
+Attempt 1. RED on the unfixed code: `test_only_in_context_citations_are_returned` (citations held `concepts/tokenizer` and `concepts/missing-page`), `test_citation_id_comparison_ignores_case`, `test_raw_citation_accepted_only_when_it_entered_the_prompt` and `test_no_match_path_has_empty_rejected_citations` (`KeyError: 'rejected_citations'`): 4 failed.
+
+| Acceptance item | Proving test or command | Result |
+|---|---|---|
+| 1. in-context kept, out-of-context and nonexistent rejected with reasons, answer unchanged | `test_only_in_context_citations_are_returned` | pass |
+| 2. upper-case id of the in-context page accepted | `test_citation_id_comparison_ignores_case` | pass |
+| 3. raw citation accepted only when it entered the prompt | `test_raw_citation_accepted_only_when_it_entered_the_prompt` | pass |
+| 4. no-match path: `rejected_citations == []` | `test_no_match_path_has_empty_rejected_citations` | pass |
+| 5. bench probe | `python bench/knowledge/run.py --probe citations`: `returned_in-context=6 returned_nonexistent=0 returned_out-of-context=0 returned_traversal=0` | pass (reviewer-verified) |
+| 6. DoD green, no existing test edited, CHANGELOG / CHANGELOG-history entries, CLAUDE.md counts | DoD below; `git diff main --stat -- tests/` lists only the new file; `python scripts/verify_docs.py`: docs in sync (3995 tests, 230 files) | pass (reviewer-verified) |

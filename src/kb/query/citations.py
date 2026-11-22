@@ -2,6 +2,7 @@
 
 import html as _html
 import re
+from pathlib import Path
 
 # Matches both legacy `[source: X]` / `[ref: X]` and canonical `[[X]]` formats.
 # Cycle 5 redo T1: prompt at engine.py instructs the new wikilink form; the
@@ -61,6 +62,45 @@ def extract_citations(text: str) -> list[dict]:
             }
         )
     return citations
+
+
+def partition_citations(
+    citations: list[dict],
+    prompt_ids: set[str] | list[str],
+    *,
+    wiki_dir: Path,
+    raw_dir: Path,
+) -> tuple[list[dict], list[dict]]:
+    """Split extracted citations into those that were in the prompt and the rest.
+
+    T0-KBFIX-CITECTX (#189): a citation is accepted only when its path, compared
+    case-insensitively, is one of ``prompt_ids`` (the wiki page ids in
+    ``context_pages`` plus the raw ids the raw-source fallback put in the prompt).
+    Each other citation is returned with ``reason``: ``"out_of_context"`` when the
+    page or raw file exists, ``"nonexistent"`` when it does not. The existence
+    probe only ever sees paths that passed ``extract_citations``' shape filter
+    (no ``..``, no leading ``/``, no empty or dot-leading segment), so it stays
+    under ``wiki_dir`` / ``raw_dir``.
+
+    Returns:
+        ``(accepted, rejected)``. Accepted entries are the input dicts unchanged;
+        rejected entries are copies with an added ``reason`` key.
+    """
+    allowed = {pid.lower() for pid in prompt_ids}
+    accepted: list[dict] = []
+    rejected: list[dict] = []
+    for cite in citations:
+        path = cite["path"]
+        if path.lower() in allowed:
+            accepted.append(cite)
+            continue
+        if cite["type"] == "raw":
+            target = raw_dir / path.removeprefix("raw/")
+        else:
+            target = wiki_dir / f"{path}.md"
+        reason = "out_of_context" if target.is_file() else "nonexistent"
+        rejected.append({**cite, "reason": reason})
+    return accepted, rejected
 
 
 def format_citations(citations: list[dict], mode: str = "markdown") -> str:

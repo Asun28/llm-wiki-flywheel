@@ -32,7 +32,7 @@ from kb.errors import KBError, QueryError
 from kb.graph.builder import build_graph
 from kb.models.frontmatter import validate_frontmatter
 from kb.query.bm25 import BM25Index, tokenize
-from kb.query.citations import extract_citations
+from kb.query.citations import extract_citations, partition_citations
 from kb.query.dedup import dedup_results
 from kb.query.embeddings import _vec_db_path
 from kb.query.hybrid import rrf_fusion
@@ -878,7 +878,12 @@ def query_wiki(
             citations: list of dicts, each with keys 'type' ('wiki'|'raw'),
                 'path' (str), 'context' (str surrounding text), and 'stale'
                 (bool) — True when the cited page's ``updated`` frontmatter
-                predates its raw source's mtime (Cycle 7 AC4 doc-sync).
+                predates its raw source's mtime (Cycle 7 AC4 doc-sync). Only
+                citations whose id was in the prompt (``context_pages`` or a
+                raw-fallback section) are kept (T0-KBFIX-CITECTX, #189).
+            rejected_citations: the other extracted citations, same keys plus
+                'reason' ('out_of_context' | 'nonexistent'). The answer text
+                still contains them.
             source_pages: list of page IDs retrieved by BM25 search.
             context_pages: list of page IDs actually included in LLM context.
             stale_citations: list of page IDs (subset of context_pages) whose
@@ -1011,6 +1016,7 @@ def _query_wiki_body(
             "source_pages": [],
             "context_pages": [],
             "stale_citations": [],
+            "rejected_citations": [],
             "search_mode": search_mode,
             "coverage_confidence": None,
         }
@@ -1047,6 +1053,9 @@ def _query_wiki_body(
     raw_fallback_needed = (not ctx_ids) or context_types == {"summary"}
 
     raw_context = ""
+    # T0-KBFIX-CITECTX (#189): raw ids whose section entered the prompt; a raw
+    # citation is accepted only when its id is in this list.
+    raw_prompt_ids: list[str] = []
     if raw_fallback_needed:
         raw_results = search_raw_sources(
             effective_question, raw_dir=effective_raw_dir, max_results=3
@@ -1076,8 +1085,10 @@ def _query_wiki_body(
                     # the already-full ctx + FENCE_OVERHEAD.
                     if not raw_sections and budget > 0:
                         raw_sections.append(section[:budget])
+                        raw_prompt_ids.append(rs["id"])
                     break
                 raw_sections.append(section)
+                raw_prompt_ids.append(rs["id"])
                 budget -= len(section)
             if raw_sections:
                 raw_context = "\n" + "\n".join(raw_sections)
@@ -1148,13 +1159,22 @@ INSTRUCTIONS:
             max_tokens=QUERY_MAX_TOKENS,
         )
 
-    # 4. Extract citations from the answer
-    citations = extract_citations(answer)
+    # 4. Extract citations from the answer.
+    # T0-KBFIX-CITECTX (#189): keep only citations whose id was in the prompt
+    # (context_pages plus the raw-fallback ids); report the rest with a reason
+    # under rejected_citations. The answer text is left unchanged.
+    from kb.config import RAW_DIR
+
+    citations, rejected_citations = partition_citations(
+        extract_citations(answer),
+        [*ctx["context_pages"], *raw_prompt_ids],
+        wiki_dir=wiki_dir if wiki_dir is not None else WIKI_DIR,
+        raw_dir=effective_raw_dir if effective_raw_dir is not None else RAW_DIR,
+    )
 
     # Cycle 3 H9: derive stale_citations from the intersection of
     # context_pages (actually included in the LLM prompt) and matching_pages
-    # whose stale flag is True. We deliberately do NOT use `citations`
-    # (LLM-extracted) because those may reference pages outside context.
+    # whose stale flag is True.
     ctx_ids_set = set(ctx["context_pages"])
     stale_citations = [p["id"] for p in matching_pages if p["id"] in ctx_ids_set and p.get("stale")]
 
@@ -1162,6 +1182,7 @@ INSTRUCTIONS:
         "question": question,
         "answer": answer,
         "citations": citations,
+        "rejected_citations": rejected_citations,
         "source_pages": [p["id"] for p in matching_pages],
         "context_pages": ctx["context_pages"],
         "stale_citations": stale_citations,
