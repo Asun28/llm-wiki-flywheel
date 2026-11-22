@@ -233,3 +233,109 @@ def test_upper_case_raw_prefix_is_probed_under_the_raw_dir(model, summary_wiki_w
     assert [(c["type"], c["path"], c["reason"]) for c in result["rejected_citations"]] == [
         ("raw", "RAW/articles/tokenizer.md", "out_of_context")
     ]
+
+
+# -- R3 decision 2 regressions --------------------------------------------------------
+
+
+@pytest.fixture
+def case_sensitive_stat(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make `Path.stat` case-sensitive under `tmp_path`, as on Linux.
+
+    `exists`, `is_file` and `is_dir` all call `Path.stat`, so on Windows a name that
+    differs from the file on disk only in case is not found, as on a case-sensitive
+    filesystem.
+    """
+    import os
+
+    real_stat = Path.stat
+    root = tmp_path.resolve()
+
+    def _stat(self, *args, **kwargs):
+        resolved = Path(os.path.abspath(self))
+        if resolved != root and resolved.is_relative_to(root):
+            current = root
+            for part in resolved.relative_to(root).parts:
+                if part not in os.listdir(current):
+                    raise FileNotFoundError(2, "No such file or directory", str(self))
+                current = current / part
+        return real_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", _stat)
+
+
+def test_case_sensitive_stat_fixture_hides_a_case_variant(tmp_path, case_sensitive_stat):
+    (tmp_path / "Hydration.md").write_bytes(b"x\n")
+
+    assert (tmp_path / "Hydration.md").is_file()
+    assert not (tmp_path / "hydration.md").is_file()
+
+
+def test_wiki_reason_finds_a_mixed_case_file_name(tmp_path, case_sensitive_stat):
+    """R3 F1: id `concepts/hydration` names `concepts/Hydration.md` (`page_id` lower-cases)."""
+    from kb.query.citations import partition_citations
+
+    (tmp_path / "wiki" / "concepts").mkdir(parents=True)
+    (tmp_path / "wiki" / "concepts" / "Hydration.md").write_bytes(b"# Hydration\n")
+    (tmp_path / "raw").mkdir()
+    cite = {"type": "wiki", "path": "concepts/hydration", "context": "x"}
+
+    accepted, rejected = partition_citations(
+        [cite], wiki_ids=[], raw_ids=[], wiki_dir=tmp_path / "wiki", raw_dir=tmp_path / "raw"
+    )
+
+    assert accepted == []
+    assert rejected == [{**cite, "reason": "out_of_context"}]
+
+
+def test_raw_reason_ignores_case_beyond_the_prefix(tmp_path, case_sensitive_stat):
+    """R3 F2: `raw/articles/HYDRATION.md` names the existing `raw/articles/hydration.md`."""
+    from kb.query.citations import partition_citations
+
+    (tmp_path / "raw" / "articles").mkdir(parents=True)
+    (tmp_path / "raw" / "articles" / "hydration.md").write_bytes(b"# Hydration\n")
+    (tmp_path / "wiki").mkdir()
+    found = {"type": "raw", "path": "raw/Articles/HYDRATION.md", "context": "x"}
+    missing = {"type": "raw", "path": "raw/articles/absent.md", "context": "y"}
+
+    accepted, rejected = partition_citations(
+        [found, missing],
+        wiki_ids=[],
+        raw_ids=[],
+        wiki_dir=tmp_path / "wiki",
+        raw_dir=tmp_path / "raw",
+    )
+
+    assert accepted == []
+    assert [(c["path"], c["reason"]) for c in rejected] == [
+        ("raw/Articles/HYDRATION.md", "out_of_context"),
+        ("raw/articles/absent.md", "nonexistent"),
+    ]
+
+
+def test_stat_error_on_a_cited_name_rejects_it_and_keeps_the_answer(
+    model, concept_wiki, monkeypatch
+):
+    """R3 F3: an OSError from the existence probe (ENAMETOOLONG) must not abort the query."""
+    import errno
+
+    from kb.query.engine import query_wiki
+
+    long_name = "a" * 300
+    real_stat = Path.stat
+
+    def _stat(self, *args, **kwargs):
+        # What Linux raises for a 300-byte file name component.
+        if long_name in self.name:
+            raise OSError(errno.ENAMETOOLONG, "File name too long", str(self))
+        return real_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", _stat)
+    model.answer = f"Hydration [[concepts/hydration]] and [[concepts/{long_name}]]."
+    result = query_wiki("What is hydration?")
+
+    assert result["answer"] == model.answer
+    assert _paths(result["citations"]) == ["concepts/hydration"]
+    assert [(c["path"], c["reason"]) for c in result["rejected_citations"]] == [
+        (f"concepts/{long_name}", "nonexistent")
+    ]

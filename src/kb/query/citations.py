@@ -103,12 +103,43 @@ def partition_citations(
         if cite["type"] == "raw":
             # The raw/ prefix is matched case-insensitively, as the id comparison is.
             relative = path[len("raw/") :] if path.lower().startswith("raw/") else path
-            target = raw_dir / relative
+            exists = _is_file_ignoring_case(raw_dir, relative.split("/"))
         else:
-            target = wiki_dir / f"{path}.md"
-        reason = "out_of_context" if target.is_file() else "nonexistent"
+            parts = path.split("/")
+            parts[-1] += ".md"
+            exists = _is_file_ignoring_case(wiki_dir, parts)
+        reason = "out_of_context" if exists else "nonexistent"
         rejected.append({**cite, "reason": reason})
     return accepted, rejected
+
+
+def _is_file_ignoring_case(base: Path, parts: list[str]) -> bool:
+    """True when ``base/<parts>`` names a file, each segment matched case-insensitively.
+
+    Ids are compared lower-cased (``page_id`` lower-cases the file path), so on a
+    case-sensitive filesystem ``concepts/hydration`` must still find
+    ``concepts/Hydration.md``. An exact-case segment is tried first; otherwise the
+    directory is listed once for that segment. Any ``OSError`` (for example
+    ``ENAMETOOLONG`` on a model-written name, or an unreadable directory) means
+    the file is not found: a citation's reason must never abort the query.
+    """
+    current = base
+    try:
+        for part in parts:
+            exact = current / part
+            if exact.exists():
+                current = exact
+                continue
+            if not current.is_dir():
+                return False
+            wanted = part.lower()
+            match = next((c for c in current.iterdir() if c.name.lower() == wanted), None)
+            if match is None:
+                return False
+            current = match
+        return current.is_file()
+    except OSError:
+        return False
 
 
 def format_citations(citations: list[dict], mode: str = "markdown") -> str:

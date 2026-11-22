@@ -78,7 +78,7 @@ Attempt 1. RED on the unfixed code: `test_only_in_context_citations_are_returned
 | 3. raw citation accepted only when it entered the prompt | `test_raw_citation_accepted_only_when_it_entered_the_prompt` | pass |
 | 4. no-match path: `rejected_citations == []` | `test_no_match_path_has_empty_rejected_citations` | pass |
 | 5. bench probe | `python bench/knowledge/run.py --probe citations`: `returned_in-context=6 returned_nonexistent=0 returned_out-of-context=0 returned_traversal=0` | pass (reviewer-verified) |
-| 6. DoD green, no existing test edited, CHANGELOG / CHANGELOG-history entries, CLAUDE.md counts | DoD below; `git diff main --stat -- tests/` lists only the new file; `python scripts/verify_docs.py`: docs in sync (4000 tests, 230 files) | pass (reviewer-verified) |
+| 6. DoD green, no existing test edited, CHANGELOG / CHANGELOG-history entries, CLAUDE.md counts | DoD below; `git diff main --stat -- tests/` lists only the new file; `python scripts/verify_docs.py`: docs in sync (4004 tests, 230 files) | pass (reviewer-verified) |
 
 Attempt 2 (R3 decision 1 repair, 3 findings). RED on the blocked candidate 28b9dbb with the new tests copied in: `test_raw_form_citation_of_a_wiki_page_is_not_accepted`, `test_truncated_raw_section_counts_only_with_header_and_content[one-char]`, `[header-only]` and `test_upper_case_raw_prefix_is_probed_under_the_raw_dir` 4 failed; `[header-plus-content]` passed (control).
 
@@ -105,3 +105,14 @@ Input forms and paths the repair hunks handle:
 | | section fits whole | `test_raw_citation_accepted_only_when_it_entered_the_prompt` |
 
 Same class elsewhere: `_build_query_context` already records a truncated wiki page only when `remaining > header_len` (`engine.py:784`) and returns no page when `effective_max <= len(header)` (`engine.py:840`).
+
+Attempt 3 (R3 decision 2 repair, 3 findings). RED on the blocked candidate 34a0a96 with the new tests copied in: `test_wiki_reason_finds_a_mixed_case_file_name`, `test_raw_reason_ignores_case_beyond_the_prefix`, `test_stat_error_on_a_cited_name_rejects_it_and_keeps_the_answer` 3 failed. (A first version patched `Path.exists`, which the old `is_file()` probe never calls, and passed on the old code; the tests now patch `Path.stat`, which `exists`, `is_file` and `is_dir` all call.)
+
+| R3 finding | Proving test | Result |
+|---|---|---|
+| F1 wiki file name differs in case from the id | `test_wiki_reason_finds_a_mixed_case_file_name` | pass |
+| F2 raw path differs in case beyond the prefix | `test_raw_reason_ignores_case_beyond_the_prefix` | pass |
+| F3 `OSError` from the probe aborts the query | `test_stat_error_on_a_cited_name_rejects_it_and_keeps_the_answer` | pass |
+| fixture emulates a case-sensitive filesystem | `test_case_sensitive_stat_fixture_hides_a_case_variant` | pass |
+
+Input forms and paths of `_is_file_ignoring_case`: exact-case segment exists (all earlier tests); segment differs in case, found by listing (F1 wiki, F2 raw directory and file segments); no segment matches (`raw/articles/absent.md` -> `nonexistent`, F2 test); parent is not a directory (`concepts/missing-page` -> listing finds nothing, `test_only_in_context_citations_are_returned`); `OSError` from `stat` (F3 test). An `OSError` from `iterdir` is caught by the same `except` (not separately tested).
