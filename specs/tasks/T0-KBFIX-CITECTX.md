@@ -87,3 +87,21 @@ Attempt 2 (R3 decision 1 repair, 3 findings). RED on the blocked candidate 28b9d
 | F1 wiki/raw allowance shared | `test_raw_form_citation_of_a_wiki_page_is_not_accepted` | pass |
 | F2 truncated raw section counted | `test_truncated_raw_section_counts_only_with_header_and_content` (one-char, header-only, header-plus-content) | pass |
 | F3 `RAW/` prefix probe | `test_upper_case_raw_prefix_is_probed_under_the_raw_dir` | pass |
+
+Input forms and paths the repair hunks handle:
+
+| Hunk | Input form or path | Test |
+|---|---|---|
+| `partition_citations` per-type sets | wiki citation of an in-context page | `test_only_in_context_citations_are_returned` |
+| | raw-form `[ref: <wiki id>]` citation, same id in `context_pages` | `test_raw_form_citation_of_a_wiki_page_is_not_accepted` |
+| | raw citation of a raw id in the prompt | `test_raw_citation_accepted_only_when_it_entered_the_prompt` |
+| | upper-case wiki id | `test_citation_id_comparison_ignores_case` |
+| raw prefix match | `raw/...` (lower-case) existing, out of prompt | `test_raw_citation_accepted_only_when_it_entered_the_prompt` |
+| | `RAW/...` existing, out of prompt | `test_upper_case_raw_prefix_is_probed_under_the_raw_dir` |
+| | raw-type path with no `raw/` prefix (`concepts/hydration`) | `test_raw_form_citation_of_a_wiki_page_is_not_accepted` (`nonexistent`) |
+| truncated raw section | budget 1 char (header cut) | `[one-char]` |
+| | budget = header length exactly | `[header-only]` |
+| | header + 10 chars of content | `[header-plus-content]` |
+| | section fits whole | `test_raw_citation_accepted_only_when_it_entered_the_prompt` |
+
+Same class elsewhere: `_build_query_context` already records a truncated wiki page only when `remaining > header_len` (`engine.py:784`) and returns no page when `effective_max <= len(header)` (`engine.py:840`).
