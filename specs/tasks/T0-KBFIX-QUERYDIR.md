@@ -53,3 +53,14 @@ ruff check src/ tests/ && python -m pytest tests/test_kbfix_query_default_wiki_d
 ```
 - Expected exit code: 0
 - Assertion: every acceptance test above passes.
+
+## Attempt evidence
+
+Attempt 1. RED at 5c639f6: `test_query_wiki_without_wiki_dir_reads_the_default_purpose`, `test_cli_query_without_wiki_dir_exits_zero` and `test_kb_query_use_api_without_wiki_dir_returns_the_answer` 3 failed (`QueryError: unsupported operand type(s) for /: 'NoneType' and 'str'` from `kb/query/engine.py:909`).
+
+| Acceptance item | Proving test or command | Result |
+|---|---|---|
+| 1. `query_wiki()` with no `wiki_dir`: answer returned, default `purpose.md` in the prompt | `test_query_wiki_without_wiki_dir_reads_the_default_purpose` | pass |
+| 2. `kb query` exits 0 with the answer | `test_cli_query_without_wiki_dir_exits_zero` | pass |
+| 3. `kb_query(use_api=True)` returns the answer, not `Error:` | `test_kb_query_use_api_without_wiki_dir_returns_the_answer` | pass |
+| 4. DoD green, no existing test edited, CHANGELOG / CHANGELOG-history entries, CLAUDE.md counts | DoD below; `git diff main --stat -- tests/` lists only the new file; `python scripts/verify_docs.py`: 3991 tests, 229 files, docs in sync | pass (reviewer-verified) |

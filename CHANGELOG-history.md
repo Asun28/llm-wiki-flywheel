@@ -17,6 +17,18 @@ Purpose: Full per-cycle bullet-level detail archive. CHANGELOG.md is the compact
 
 > Detailed per-cycle entries live here. High-level summaries remain in [CHANGELOG.md](CHANGELOG.md); full bullet-level detail belongs here.
 
+### 2026-11-23 — T0-KBFIX-QUERYDIR (`kb query` and `kb_query(use_api=true)` use the default wiki directory when none is given, #188)
+
+**Card:** T0-KBFIX-QUERYDIR (goal g-20261122222128-02ec13, T0-bugfix). Filed from the NVIDIA/auto-ontology comparison review (2026-11-22).
+
+**Theme:** `query_wiki` passed its `wiki_dir` argument, `None` by default, to `load_purpose(wiki_dir)` (`engine.py:1093`), which evaluates `wiki_dir / "purpose.md"` and raised `TypeError`, re-raised as `QueryError` before the model call. Both production callers omit `wiki_dir`: `cli.py:271` (`kb query`) and `mcp/core.py:338` (`kb_query(use_api=true)`). With no matching page `query_wiki` returns earlier, so an empty wiki did not show it. Reproduced on main 36dab28 in the `tmp_kb_env` sandbox.
+
+- **`src/kb/query/engine.py`.** The `load_purpose` call passes the module-level `WIKI_DIR` (already used by `engine.py:146,586,990` and rebound by the test sandbox) when `wiki_dir` is `None`, the same guard as `ingest/extractors.py:357`. `wiki_dir` is not resolved at the top of `query_wiki`, which would change the `raw_dir` derivation at `engine.py:925` for the default call.
+- **Tests.** `tests/test_kbfix_query_default_wiki_dir.py` (new, 3 tests, every call inside `tmp_kb_env`, only `kb.query.engine.call_llm` stubbed): `query_wiki()` with no `wiki_dir` returns the answer and its prompt holds the sandbox `purpose.md` text; `kb query` exits 0 with the answer; `kb_query(use_api=True)` returns the answer, not an `Error:` string. RED at 5c639f6: 3 failed with the `QueryError`.
+- **Sweep:** the other `load_purpose` callers are safe: `ingest/extractors.py:357` guards `None`, `lint/augment/orchestrator.py:98` receives a `wiki_dir` resolved at line 126. The other `wiki_dir` uses inside `query_wiki` handle `None`.
+- **Not changed:** `load_purpose` and its signature.
+- **Tests:** 3988 → 3991 (+3).
+
 ### 2026-11-23 — T0-KBFIX-STATSDIR (`kb_stats` and `kb stats` use the default wiki directory when none is given, #187)
 
 **Card:** T0-KBFIX-STATSDIR (goal g-20261122213104-19eef3, T0-bugfix). Filed from the NVIDIA/auto-ontology comparison review (2026-11-22).
