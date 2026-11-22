@@ -80,10 +80,9 @@ def partition_citations(
     fallback put in the prompt). The two sets are checked per type, so a
     ``[ref: <wiki id>]`` citation does not pass on a wiki page's allowance.
     Each other citation is returned with ``reason``: ``"out_of_context"`` when the
-    page or raw file exists, ``"nonexistent"`` when it does not. The existence
-    probe only ever sees paths that passed ``extract_citations``' shape filter
-    (no ``..``, no leading ``/``, no empty or dot-leading segment), so it stays
-    under ``wiki_dir`` / ``raw_dir``.
+    page or raw file exists, ``"nonexistent"`` when it does not. Existence is a
+    case-insensitive lookup in the list of files under ``wiki_dir`` / ``raw_dir``
+    (see ``_lower_relative_files``); no model-written path is passed to ``stat``.
 
     Returns:
         ``(accepted, rejected)``. Accepted entries are the input dicts unchanged;
@@ -95,6 +94,9 @@ def partition_citations(
     }
     accepted: list[dict] = []
     rejected: list[dict] = []
+    # Lower-cased relative paths of the files under each directory, listed at most
+    # once per call and only when a citation is rejected.
+    known: dict[str, set[str]] = {}
     for cite in citations:
         path = cite["path"]
         if path.lower() in allowed.get(cite["type"], set()):
@@ -103,43 +105,37 @@ def partition_citations(
         if cite["type"] == "raw":
             # The raw/ prefix is matched case-insensitively, as the id comparison is.
             relative = path[len("raw/") :] if path.lower().startswith("raw/") else path
-            exists = _is_file_ignoring_case(raw_dir, relative.split("/"))
+            if "raw" not in known:
+                known["raw"] = _lower_relative_files(raw_dir)
+            exists = relative.lower() in known["raw"]
         else:
-            parts = path.split("/")
-            parts[-1] += ".md"
-            exists = _is_file_ignoring_case(wiki_dir, parts)
+            if "wiki" not in known:
+                known["wiki"] = _lower_relative_files(wiki_dir)
+            exists = f"{path}.md".lower() in known["wiki"]
         reason = "out_of_context" if exists else "nonexistent"
         rejected.append({**cite, "reason": reason})
     return accepted, rejected
 
 
-def _is_file_ignoring_case(base: Path, parts: list[str]) -> bool:
-    """True when ``base/<parts>`` names a file, each segment matched case-insensitively.
+def _lower_relative_files(base: Path) -> set[str]:
+    """Lower-cased POSIX paths, relative to ``base``, of every file under ``base``.
 
-    Ids are compared lower-cased (``page_id`` lower-cases the file path), so on a
-    case-sensitive filesystem ``concepts/hydration`` must still find
-    ``concepts/Hydration.md``. An exact-case segment is tried first; otherwise the
-    directory is listed once for that segment. Any ``OSError`` (for example
-    ``ENAMETOOLONG`` on a model-written name, or an unreadable directory) means
-    the file is not found: a citation's reason must never abort the query.
+    Ids are compared lower-cased (``page_id`` lower-cases the file path), so the
+    reason lookup compares a citation against this set rather than stat-ing a
+    model-written path: a file name that differs from the id in case, at any
+    segment, is still found on a case-sensitive filesystem, and no model-written
+    name reaches the filesystem (no ``ENAMETOOLONG``). Symlinked directories are
+    not followed (``Path.rglob`` default). An ``OSError`` while listing returns
+    the files seen so far: a citation's reason must never abort the query.
     """
-    current = base
+    found: set[str] = set()
     try:
-        for part in parts:
-            exact = current / part
-            if exact.exists():
-                current = exact
-                continue
-            if not current.is_dir():
-                return False
-            wanted = part.lower()
-            match = next((c for c in current.iterdir() if c.name.lower() == wanted), None)
-            if match is None:
-                return False
-            current = match
-        return current.is_file()
+        for entry in base.rglob("*"):
+            if entry.is_file():
+                found.add(entry.relative_to(base).as_posix().lower())
     except OSError:
-        return False
+        pass
+    return found
 
 
 def format_citations(citations: list[dict], mode: str = "markdown") -> str:

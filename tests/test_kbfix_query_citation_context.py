@@ -339,3 +339,36 @@ def test_stat_error_on_a_cited_name_rejects_it_and_keeps_the_answer(
     assert [(c["path"], c["reason"]) for c in result["rejected_citations"]] == [
         (f"concepts/{long_name}", "nonexistent")
     ]
+
+
+# -- R3 decision 3 regression ---------------------------------------------------------
+
+
+def _filesystem_is_case_sensitive(directory: Path) -> bool:
+    probe = directory / "case_probe"
+    probe.write_bytes(b"")
+    try:
+        return not (directory / "CASE_PROBE").exists()
+    finally:
+        probe.unlink()
+
+
+def test_raw_reason_checks_every_case_variant_directory(tmp_path):
+    """R3 decision 3: `raw/articles/` (exact case, empty) and `raw/ARTICLES/` (empty) must
+    not hide `raw/Articles/hydration.md` from the citation `raw/articles/hydration.md`."""
+    if not _filesystem_is_case_sensitive(tmp_path):
+        pytest.skip("needs a case-sensitive filesystem to hold directories differing in case")
+    from kb.query.citations import partition_citations
+
+    for name in ("articles", "ARTICLES", "Articles"):
+        (tmp_path / "raw" / name).mkdir(parents=True)
+    (tmp_path / "raw" / "Articles" / "hydration.md").write_bytes(b"# Hydration\n")
+    (tmp_path / "wiki").mkdir()
+    cite = {"type": "raw", "path": "raw/articles/hydration.md", "context": "x"}
+
+    accepted, rejected = partition_citations(
+        [cite], wiki_ids=[], raw_ids=[], wiki_dir=tmp_path / "wiki", raw_dir=tmp_path / "raw"
+    )
+
+    assert accepted == []
+    assert rejected == [{**cite, "reason": "out_of_context"}]
