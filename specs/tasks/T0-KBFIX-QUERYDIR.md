@@ -1,7 +1,7 @@
 ---
 id: T0-KBFIX-QUERYDIR
 title: "kb query and kb_query(use_api=true) use the default wiki directory when wiki_dir is omitted (#188)"
-status: todo
+status: merged
 branch: T0-KBFIX-QUERYDIR
 worktree: D:\wt\llm-wiki-flywheel\T0-KBFIX-QUERYDIR
 allow_paths:
