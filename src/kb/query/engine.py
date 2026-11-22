@@ -1090,7 +1090,9 @@ def _query_wiki_body(
     context = wrap_wiki_context(ctx["context"] + raw_context)
 
     # 3. Synthesize answer with LLM
-    purpose = load_purpose(wiki_dir)
+    # T0-KBFIX-QUERYDIR (#188): load_purpose needs a Path; the default call passes
+    # wiki_dir=None. Same guard as ingest/extractors.py:357.
+    purpose = load_purpose(wiki_dir if wiki_dir is not None else WIKI_DIR)
     if purpose:
         wrapped = wrap_purpose(purpose)
         purpose_section = f"\nKB FOCUS (bias answers toward these goals):\n{wrapped}\n"
