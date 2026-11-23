@@ -91,7 +91,13 @@ _TOOL_GROUPS = (
     ),
     (
         "Query",
-        (("kb_query", "returns wiki context for you to synthesize an answer."),),
+        (
+            ("kb_query", "returns wiki context for you to synthesize an answer."),
+            (
+                "kb_check_citations",
+                "check your answer's citations against kb_query's context_pages.",
+            ),
+        ),
     ),
 )
 

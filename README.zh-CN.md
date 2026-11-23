@@ -5,12 +5,12 @@
 > **注意：** 英文版 [README.md](README.md) 是规范版本。中文镜像可能滞后 1-2 个开发周期；请通过 GitHub 查看最新状态。
 > *Note: English [README.md](README.md) is canonical. This Chinese mirror may lag by 1-2 cycles; see GitHub for current state.*
 
-![Python](https://img.shields.io/badge/python-3.12%2B-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Tests](https://img.shields.io/badge/tests-3461-brightgreen) ![MCP Tools](https://img.shields.io/badge/MCP%20tools-28-blueviolet) ![Version](https://img.shields.io/badge/version-v0.12.0-orange)
+![Python](https://img.shields.io/badge/python-3.12%2B-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Tests](https://img.shields.io/badge/tests-3461-brightgreen) ![MCP Tools](https://img.shields.io/badge/MCP%20tools-29-blueviolet) ![Version](https://img.shields.io/badge/version-v0.12.0-orange)
 
 **编译知识，而非检索碎片。**
 丢入原始资料，剩下的交给 Claude：自动提取实体、构建维基页面、注入双向链接、追踪可信度、标记矛盾点。以 Markdown 为核心，混合检索为可选项。生成的是完全由你掌控的纯 Markdown 文件，可直接在 Obsidian 中浏览。
 
-灵感源自 [Karpathy 的 LLM 知识库构想](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)，并实现了**全自动化**。原生支持 Claude Code，内置 28 个 MCP 工具：无需配置 API Key 即可运行。同样支持通过 `KB_LLM_BACKEND` 接入本地 AI CLI 工具（Ollama、Gemini CLI、OpenCode、Codex CLI、Kimi Code、QWEN CODE CLI、DeepSeek Coder、GLM-4.5/ZAI CLI 等）。
+灵感源自 [Karpathy 的 LLM 知识库构想](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)，并实现了**全自动化**。原生支持 Claude Code，内置 29 个 MCP 工具：无需配置 API Key 即可运行。同样支持通过 `KB_LLM_BACKEND` 接入本地 AI CLI 工具（Ollama、Gemini CLI、OpenCode、Codex CLI、Kimi Code、QWEN CODE CLI、DeepSeek Coder、GLM-4.5/ZAI CLI 等）。
 
 ---
 
@@ -21,7 +21,7 @@
 🔗 **回溯式链接**：摄入新主题时，已有页面会自动补充 `[[维基链接]]`。
 🧪 **自我修复**：贝叶斯可信度评分、矛盾检测、内容过期标记、死链检查。
 🦉 **Obsidian 原生兼容**：将 `wiki/` 目录作为 Vault 打开，免费享受图谱视图、反向链接与悬浮预览。
-🔌 **MCP 优先**：在 Claude Code 中内置 28 个工具。用自然对话管理知识库："摄入这篇"、"关于 X 我们知道什么？"
+🔌 **MCP 优先**：在 Claude Code 中内置 29 个工具。用自然对话管理知识库："摄入这篇"、"关于 X 我们知道什么？"
 📤 **一键发布**：单条命令即可生成 `/llms.txt`、`/llms-full.txt`、`/graph.jsonld`、站点地图及关联页面：完整支持 Karpathy Tier-1 机器可读标准。
 
 ### 为什么不用 RAG？
@@ -63,7 +63,7 @@ Karpathy 描述了一种手动让 LLM 编译页面的模式。而本项目是**�
 | 无交叉链接 | 回溯式维基链接注入（新主题自动链接至历史页面） |
 | 无质量检查 | 自我修复（Lint 捕获问题、可信度评分标记低质页面、矛盾检测） |
 | 无盲区感知 | Evolve 自动识别覆盖缺口与连接机会 |
-| 依赖外部 LLM API 调用 | MCP 原生集成（Claude Code 内置 28 个工具，无需 API Key） |
+| 依赖外部 LLM API 调用 | MCP 原生集成（Claude Code 内置 29 个工具，无需 API Key） |
 | 纯文本输出 | Obsidian 原生支持（打开 `wiki/` 即可免费使用可视化知识图谱） |
 
 ---
@@ -255,7 +255,7 @@ CLI 同时镜像了大部分 MCP 工具（`kb search`、`kb stats`、`kb read-pa
 - 崩溃安全编译：SHA-256 清单 + O_EXCL 建页，中断后可续跑而非损坏数据
 
 ### 🤖 Claude Code 集成 (MCP Server)
-原生支持 28 个工具，无需 API Key（Claude Code 作为默认 LLM）。
+原生支持 29 个工具，无需 API Key（Claude Code 作为默认 LLM）。
 ```json
 {
   "mcpServers": {
@@ -280,7 +280,7 @@ CLI 同时镜像了大部分 MCP 工具（`kb search`、`kb stats`、`kb read-pa
 
 ---
 
-## 🧰 全部 28 个 MCP 工具
+## 🧰 全部 29 个 MCP 工具
 
 <details>
 <summary><b>展开查看完整工具列表</b></summary>
@@ -290,6 +290,7 @@ CLI 同时镜像了大部分 MCP 工具（`kb search`、`kb stats`、`kb read-pa
 | 工具 | 说明 |
 |---|---|
 | `kb_query` | 查询知识库，返回上下文供 Claude Code 解答。添加 `use_api=true` 可启用 API 合成 |
+| `kb_check_citations` | 用 `kb_query` 返回的 `context_pages` 检查答案中的引用；未通过的引用标注 `out_of_context` 或 `nonexistent` |
 | `kb_ingest` | 摄入源文件。可传入 `extraction_json` 自定义提取结果，省略则先获取提示词 |
 | `kb_ingest_content` | 一步到位：提供原始内容 + 提取 JSON，自动保存至 `raw/` 并创建所有维基页 |
 | `kb_save_source` | 仅保存内容至 `raw/` 不触发摄入。文件已存在时报错（除非 `overwrite=true`） |
@@ -416,7 +417,7 @@ llm-wiki-flywheel/
     config.py              # 路径、模型分级、调优常量
     errors.py              # KBError 异常分类体系（ValidationError、StorageError 等）
     capture.py             # 聊天/会话记录原子化
-    mcp/                   # FastMCP 服务端（28 个工具）+ 统一错误边界
+    mcp/                   # FastMCP 服务端（29 个工具）+ 统一错误边界
     models/                # WikiPage, RawSource, 前置元数据校验
     ingest/                # 流水线 + 模板驱动提取器 + 证据链
     compile/               # 增量编译器 + 维基链接器 + 发布构建器

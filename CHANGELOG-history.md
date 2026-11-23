@@ -17,6 +17,21 @@ Purpose: Full per-cycle bullet-level detail archive. CHANGELOG.md is the compact
 
 > Detailed per-cycle entries live here. High-level summaries remain in [CHANGELOG.md](CHANGELOG.md); full bullet-level detail belongs here.
 
+### 2026-11-23 — T1-KBCITE-CHECK (new MCP tool `kb_check_citations`, #197)
+
+**Card:** T1-KBCITE-CHECK (goal g-20261123000322-ae85ae, T1, plan `plans/kb-cite-check.md`). Split out of #189 by owner decision 4.
+
+**Theme:** #189 made `query_wiki` reject citations whose id was not in the prompt. In default MCP mode `kb_query` returns wiki context and the calling model writes the answer, so no answer reaches `query_wiki` and its citations were never checked.
+
+**Owner decisions (2026-11-23):** a new MCP tool, not a `kb_query` parameter; `kb_query` echoes the context page ids and the caller passes them back (no server-side token).
+
+- **`src/kb/mcp/core.py`.** New `kb_check_citations(answer, context_pages="")`, `@mcp.tool()` over `@_mcp_error_boundary`, sync (not a long tool: `partition_citations` lists the wiki or raw directory only when a citation is rejected, as `kb_list_pages` lists the wiki). `context_pages` drops one leading `context_pages:` label (case-insensitive) and splits on commas and whitespace. Citations come from `extract_citations`; `partition_citations` runs with `raw_ids=[]` because default `kb_query` context holds wiki pages only, and with `kb.config.WIKI_DIR` / `RAW_DIR` read at call time instead of the module's import-time bindings. Output: `Accepted (n): <paths>` then `Rejected (m):` and one `  - <path> (<type>): <reason>` line per rejection; `No citations found in answer.` when there are none. Empty or whitespace answer, an answer over `MAX_CITATION_CHECK_ANSWER_CHARS` (200,000) and more than `MAX_SEARCH_RESULTS` ids return `Error: ...` before any extraction.
+- **`src/kb/mcp/app.py`.** `kb_check_citations` listed in the Query group of the server instructions.
+- **Tests.** `tests/test_kbcite_check_citations.py` (new, 15 tests, every call in `tmp_kb_env`, fixtures written as bytes): in-context accepted, existing out-of-context and missing pages rejected with reasons; five `context_pages` forms parse the same; upper-case citation accepted; raw citation rejected `out_of_context`; no-citation answer; four limit cases with `extract_citations` spied and not called; boundary values accepted; tool registered, listed under Query, not long. RED: 15 failed on main (no such tool).
+- **Docs.** README, README.zh-CN and `docs/reference/mcp-servers.md`: 28 → 29 tools; tool rows and reference entry added.
+- **Not changed:** `extract_citations`, `partition_citations`, `kb_query` output (card T1-KBCITE-ECHO).
+- **Tests:** 4005 → 4020 (+15).
+
 ### 2026-11-23 — T0-KBFIX-CITECTX (`query_wiki` returns only citations that were in the prompt, #189)
 
 **Card:** T0-KBFIX-CITECTX (goal g-20261122224510-b2b799, T0). Filed from the NVIDIA/auto-ontology comparison review (2026-11-22).

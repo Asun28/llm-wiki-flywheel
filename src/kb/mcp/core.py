@@ -34,6 +34,7 @@ from kb.mcp.app import (
     _rel,
     _validate_wiki_dir,
     error_tag,
+    mcp,
 )
 from kb.query.rewriter import rewrite_query
 from kb.utils.io import atomic_text_write
@@ -441,6 +442,66 @@ def kb_query(
     wrapped = wrap_wiki_context("\n".join(page_sections))
     if wrapped:
         lines.append(wrapped)
+    return "\n".join(lines)
+
+
+# T1-KBCITE-CHECK (#197): upper bound on the answer text kb_check_citations scans.
+MAX_CITATION_CHECK_ANSWER_CHARS = 200_000
+
+_CONTEXT_PAGES_LABEL = re.compile(r"^\s*context_pages\s*:", re.IGNORECASE)
+_CONTEXT_PAGES_SEP = re.compile(r"[,\s]+")
+
+
+@mcp.tool()
+@_mcp_error_boundary
+def kb_check_citations(answer: str, context_pages: str = "") -> str:
+    """Check the citations in an answer you wrote from kb_query's default context.
+
+    Pass the answer and the ``context_pages`` line from the kb_query response
+    (comma- or space-separated page ids; the ``context_pages:`` label is optional).
+    A citation is accepted only when its page id is one of those ids. Every other
+    citation is rejected with a reason: ``out_of_context`` (the page or raw file
+    exists but was not in your context) or ``nonexistent``. Raw-source citations
+    are always rejected here: default kb_query context holds wiki pages only.
+    Reads no page content and writes nothing.
+
+    Args:
+        answer: The answer text, with citations as [[page_id]], [source: id] or
+            [ref: raw/path].
+        context_pages: The page ids kb_query returned in its ``context_pages`` line.
+    """
+    if not answer or not answer.strip():
+        return "Error: answer cannot be empty."
+    if len(answer) > MAX_CITATION_CHECK_ANSWER_CHARS:
+        return f"Error: answer too long (max {MAX_CITATION_CHECK_ANSWER_CHARS} chars)."
+    ids = [
+        item
+        for item in _CONTEXT_PAGES_SEP.split(_CONTEXT_PAGES_LABEL.sub("", context_pages, count=1))
+        if item
+    ]
+    if len(ids) > MAX_SEARCH_RESULTS:
+        return f"Error: too many context_pages ids (max {MAX_SEARCH_RESULTS})."
+
+    # Directories are read from kb.config at call time, not the import-time
+    # bindings above, so a sandboxed or reconfigured wiki is the one checked.
+    import kb.config as config
+    from kb.query.citations import extract_citations, partition_citations
+
+    citations = extract_citations(answer)
+    if not citations:
+        return "No citations found in answer."
+    accepted, rejected = partition_citations(
+        citations,
+        wiki_ids=ids,
+        raw_ids=[],
+        wiki_dir=config.WIKI_DIR,
+        raw_dir=config.RAW_DIR,
+    )
+    lines = [
+        f"Accepted ({len(accepted)}): " + ", ".join(c["path"] for c in accepted),
+        f"Rejected ({len(rejected)}):",
+    ]
+    lines.extend(f"  - {c['path']} ({c['type']}): {c['reason']}" for c in rejected)
     return "\n".join(lines)
 
 
