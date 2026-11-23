@@ -79,6 +79,7 @@ Attempt 1. RED on main 82fee07 with the new test file: 15 failed (`ImportError: 
 | 3. raw citation rejected `out_of_context` | `test_raw_citation_is_never_in_default_context` | pass |
 | 4. no citation; limits without extraction | `test_no_citation`, `test_limits_return_error_without_extracting` (4 cases), `test_limits_are_at_the_boundary` | pass |
 | 5. registered, Query group, not long; existing registry tests unchanged | `test_tool_registered_in_query_group_and_short`, `tests/test_mcp_core.py`, `tests/test_cycle95_mcp_async_offload.py` | pass |
-| 6. docs 29 tools, CHANGELOG entries, CLAUDE.md counts | `python scripts/verify_docs.py`: docs in sync (4020 tests, 231 files) | pass (reviewer-verified) |
+| 6. docs 29 tools, CHANGELOG entries, CLAUDE.md counts | `python scripts/verify_docs.py`: docs in sync (4021 tests, 231 files) | pass (reviewer-verified) |
 
 DoD: `ruff check src/ tests/` all checks passed; pytest 294 passed, 2 skipped; exit 0.
+Attempt 2 (R3 decision 1 repair, 1 finding). `test_directories_are_read_from_kb_config_at_call_time` rebinds only `kb.config.WIKI_DIR` / `RAW_DIR` after `kb.mcp.core` is imported. RED with `core.py` switched to the import-time `WIKI_DIR` / `RAW_DIR` bindings: 1 failed. GREEN on the candidate: 16 passed.

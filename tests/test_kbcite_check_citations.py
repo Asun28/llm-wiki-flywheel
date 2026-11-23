@@ -91,6 +91,38 @@ def test_raw_citation_is_never_in_default_context(wiki):
     ]
 
 
+def test_directories_are_read_from_kb_config_at_call_time(wiki, tmp_path, monkeypatch):
+    """R3 decision 1: rebinding only `kb.config` after `kb.mcp.core` is imported moves the check.
+
+    `tmp_kb_env` patches `kb.config` and the modules' import-time copies alike, so the
+    other tests cannot tell the two lookups apart. Here only `kb.config` moves; the pages
+    exist under the new directories and not under the sandbox the module copies point at.
+    """
+    import kb.config
+    import kb.mcp.core as core
+
+    other_wiki = tmp_path / "other" / "wiki"
+    other_raw = tmp_path / "other" / "raw"
+    (other_wiki / "concepts").mkdir(parents=True)
+    (other_wiki / "concepts" / "only-here.md").write_bytes(_page("Only here"))
+    (other_raw / "articles").mkdir(parents=True)
+    (other_raw / "articles" / "only-here.md").write_bytes(b"raw\n")
+    monkeypatch.setattr(kb.config, "WIKI_DIR", other_wiki)
+    monkeypatch.setattr(kb.config, "RAW_DIR", other_raw)
+    assert core.WIKI_DIR != other_wiki and core.RAW_DIR != other_raw
+
+    out = core.kb_check_citations(
+        "[[concepts/only-here]] [ref: raw/articles/only-here.md] [[concepts/a]]", "concepts/x"
+    )
+    assert out.splitlines() == [
+        "Accepted (0): ",
+        "Rejected (3):",
+        "  - concepts/only-here (wiki): out_of_context",
+        "  - raw/articles/only-here.md (raw): out_of_context",
+        "  - concepts/a (wiki): nonexistent",
+    ]
+
+
 def test_no_citation(wiki):
     assert _check("No citations here.", "concepts/a") == "No citations found in answer."
 
