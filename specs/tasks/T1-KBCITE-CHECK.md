@@ -1,7 +1,7 @@
 ---
 id: T1-KBCITE-CHECK
 title: "`kb_check_citations` MCP tool checks a caller's citations against the given page ids (#197)"
-status: todo
+status: merged
 branch: T1-KBCITE-CHECK
 worktree: D:\wt\llm-wiki-flywheel\T1-KBCITE-CHECK
 allow_paths:
