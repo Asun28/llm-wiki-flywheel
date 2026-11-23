@@ -7,10 +7,10 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen)](#development)
-[![MCP Tools](https://img.shields.io/badge/MCP%20tools-28-blueviolet)](#claude-code-integration-mcp-server)
+[![MCP Tools](https://img.shields.io/badge/MCP%20tools-29-blueviolet)](#claude-code-integration-mcp-server)
 [![Version](https://img.shields.io/badge/version-v0.12.0-orange)](CHANGELOG.md)
 
-Inspired by [Karpathy's LLM Knowledge Bases](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f), then **fully automated**. Works natively inside Claude Code via 28 MCP tools, **no API key required**. Also runs on any local AI CLI tool (Ollama, Gemini CLI, OpenCode, Codex CLI, and more) via `KB_LLM_BACKEND`.
+Inspired by [Karpathy's LLM Knowledge Bases](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f), then **fully automated**. Works natively inside Claude Code via 29 MCP tools, **no API key required**. Also runs on any local AI CLI tool (Ollama, Gemini CLI, OpenCode, Codex CLI, and more) via `KB_LLM_BACKEND`.
 
 ### 🎯 What you get
 
@@ -19,7 +19,7 @@ Inspired by [Karpathy's LLM Knowledge Bases](https://gist.github.com/karpathy/44
 - 🔗 **Retroactive linking.** Ingest a new topic → existing pages auto-gain `[[wikilinks]]` to it.
 - 🧪 **Self-healing.** Bayesian trust scoring, contradiction detection, staleness flags, dead-link lint.
 - 🦉 **Obsidian-native.** Open `wiki/` as a vault for a free graph view, backlinks, and hover preview.
-- 🔌 **MCP-first.** 28 tools in Claude Code. Talk to your wiki: *"ingest this"*, *"what do we know about X?"*
+- 🔌 **MCP-first.** 29 tools in Claude Code. Talk to your wiki: *"ingest this"*, *"what do we know about X?"*
 - 📤 **Publishable.** One command emits `/llms.txt`, `/llms-full.txt`, `/graph.jsonld`, sitemap, and per-page siblings: the Karpathy Tier-1 machine-consumable stack.
 
 ## Why Not RAG?
@@ -60,7 +60,7 @@ Karpathy described a pattern where you manually ask an LLM to compile pages. Thi
 | No cross-linking | **Retroactive wikilink injection**: new topics auto-linked into existing pages |
 | No quality checks | **Self-healing**: lint catches problems, trust scoring flags bad pages, contradiction detection |
 | No gap awareness | **Evolve**: automatically identifies missing coverage and connection opportunities |
-| External LLM calls | **MCP-native**: 28 tools inside Claude Code, no API key needed |
+| External LLM calls | **MCP-native**: 29 tools inside Claude Code, no API key needed |
 | Text-only | **Obsidian**: open `wiki/` as a vault, visual knowledge graph for free |
 
 ## The 30-Second Demo
@@ -270,7 +270,7 @@ Pages with `belief_state: retracted|contradicted` or `confidence: speculative` a
 
 ### Claude Code Integration (MCP Server)
 
-28 tools that work natively in Claude Code. **No API key needed**: Claude Code is the default LLM.
+29 tools that work natively in Claude Code. **No API key needed**: Claude Code is the default LLM.
 
 ```json
 {
@@ -295,13 +295,14 @@ Pages with `belief_state: retracted|contradicted` or `confidence: speculative` a
 | See the graph | "Show me the knowledge graph" |
 
 <details>
-<summary><b>All 28 MCP tools</b></summary>
+<summary><b>All 29 MCP tools</b></summary>
 
 #### Core
 
 | Tool | Description |
 |------|-------------|
 | `kb_query` | Query the wiki. Returns context for Claude Code to answer. Add `use_api=true` for API synthesis. |
+| `kb_check_citations` | Check the citations in an answer written from `kb_query` context against that response's `context_pages`; reports each rejected one as `out_of_context` or `nonexistent`. |
 | `kb_ingest` | Ingest a source file. Pass `extraction_json` with your extraction; omit it to get the prompt first. |
 | `kb_ingest_content` | One-shot: provide raw content + extraction JSON; saves to `raw/` and creates all wiki pages. |
 | `kb_save_source` | Save content to `raw/` without ingesting. Errors if file exists unless `overwrite=true`. |
@@ -418,7 +419,7 @@ llm-wiki-flywheel/
     config.py              # Paths, model tiers, tuning constants
     errors.py              # KBError taxonomy (ValidationError, StorageError, …)
     capture.py             # Chat/session transcript atomizer
-    mcp/                   # FastMCP server (28 tools) + shared error boundary
+    mcp/                   # FastMCP server (29 tools) + shared error boundary
     models/                # WikiPage, RawSource, frontmatter validation
     ingest/                # Pipeline + template-driven extractors + evidence trail
     compile/               # Incremental compiler, wikilink linker, publish builders
